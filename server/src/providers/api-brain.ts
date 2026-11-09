@@ -123,7 +123,7 @@ export class ApiBrainProvider implements Provider {
       id: this.id,
       label: this.label,
       kind: 'api',
-      workspaceProblem: sandboxProblem(undefined, { quiet: true }) ? 'Not available on this server: the API tools sandbox could not start.' : null,
+      workspaceProblem: sandboxProblem(undefined, { quiet: true }) ? (process.platform === 'linux' ? 'Not available on this server: the API tools sandbox could not start.' : 'Not available on this server: the API tools sandbox needs Linux. Choose Full computer access for a Boton you trust.') : null,
       available: has,
       reason: has ? null : `No ${state.label} API key: save one in Settings → API keys (or set ${state.envVar} in the server's environment).`,
       installed: true,

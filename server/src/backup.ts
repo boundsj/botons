@@ -17,11 +17,11 @@ export const BACKUPS_LISTED = KEEP_BACKUPS;
 export const ARCHIVED_FOLDERS: readonly string[] = ['workspaces', 'shared', 'templates', 'browser'];
 
 /**
- * Left out of a browser profile: Chromium's lock links (a restore refuses links, and they name the old process) and
+ * Left out of a browser profile: Chromium's lock and version-marker links (a restore refuses links, and they name the old process) and
  * its caches and its own home folder, which it rebuilds. Cookies and site storage stay. An owner's handover profile
  * (browser/<boton>/handover) is never archived: it holds what the owner typed, and is deleted as the handover ends.
  */
-const BROWSER_EXCLUDES = ['browser/*/handover', 'browser/*/home', 'browser/*/profile/Singleton*', 'browser/*/profile/*Cache*', 'browser/*/profile/Default/*Cache*', 'browser/*/profile/Default/Service Worker', 'browser/*/profile/Crashpad'];
+const BROWSER_EXCLUDES = ['browser/*/handover', 'browser/*/home', 'browser/*/profile/Singleton*', 'browser/*/profile/RunningChromeVersion', 'browser/*/profile/*Cache*', 'browser/*/profile/Default/*Cache*', 'browser/*/profile/Default/Service Worker', 'browser/*/profile/Crashpad'];
 
 /** A backup folder's name is its UTC time, so names sort oldest first. */
 const BACKUP_NAME = /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z$/;
@@ -104,10 +104,14 @@ export function backup(opts: { home: string; now?: Date }): BackupResult {
       const archive = join(partial, 'workspaces.tar.gz');
       // --ignore-failed-read: skip what this user cannot read (a Boton's chmod 000, a root-owned folder a container left).
       const excludes = folders.includes('browser') ? BROWSER_EXCLUDES.map((e) => `--exclude=${e}`) : [];
-      const tar = spawnSync('tar', ['--ignore-failed-read', ...excludes, '-czf', archive, '-C', opts.home, ...folders], { encoding: 'utf8' });
+      const mac = process.platform === 'darwin' && /bsdtar/.test(spawnSync('tar', ['--version'], { encoding: 'utf8' }).stdout ?? '');
+      // BSD tar cannot ignore failed reads. Keep incomplete backups as failures, and omit metadata
+      // that the portable restore format deliberately refuses (ACLs, xattrs and AppleDouble files).
+      const options = mac ? ['--no-mac-metadata', '--no-xattrs', '--no-acls', '--no-fflags'] : ['--ignore-failed-read'];
+      const tar = spawnSync('tar', [...options, ...excludes, '-czf', archive, '-C', opts.home, ...folders], { encoding: 'utf8' });
       const stderr = (tar.stderr ?? '').trim();
       // GNU tar exits 1 when a file changed while it was read; the archive is still good.
-      if (!tar.error && (tar.status === 0 || tar.status === 1) && existsSync(archive)) {
+      if (!tar.error && (tar.status === 0 || (!mac && tar.status === 1)) && existsSync(archive)) {
         chmodSync(archive, 0o600);
         manifest.workspaces = true;
         manifest.folders = folders;

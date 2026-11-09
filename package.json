@@ -59,7 +59,7 @@
     "botons": "installer/botons.mjs",
     "getbotons": "installer/botons.mjs"
   },
-  "version": "0.1.0",
+  "version": "0.1.1",
   "files": [
     "server/src/",
     "server/bin/",
@@ -94,6 +94,7 @@
     "web/index.html",
     "web/vite.config.ts",
     "web/tsconfig.json",
-    "scripts/dev-env.ts"
+    "scripts/dev-env.ts",
+    "scripts/service-runner.ts"
   ]
 }

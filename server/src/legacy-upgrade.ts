@@ -489,8 +489,8 @@ export async function upgradeService(o: ServiceUpgradeOptions): Promise<ServiceU
     if (!app || !existsSync(join(app, 'server', 'src', 'index.ts'))) throw new NameUpgradeError(`${found.unitFile} does not name a Botons folder this can move to botons.service. Nothing more was changed.`);
     const node = found.node ? mapPath(found.node, moves) : undefined;
     writeRecord(data.home, { rootFrom: root?.[0], rootTo: root?.[1] });
-    wrote.push(writeServiceUnit({ name: 'botons', app, envPath: envTo, unitDir, node, userHome, log: say }));
-    if (found.backup) wrote.push(...writeBackupUnits({ app, unitDir, node, log: say }));
+    wrote.push(writeServiceUnit({ platform: 'linux', name: 'botons', app, envPath: envTo, unitDir, node, userHome, log: say }));
+    if (found.backup) wrote.push(...writeBackupUnits({ platform: 'linux', app, unitDir, node, log: say }));
     note(data.home, {});
     await o.exec('systemctl', ['--user', 'daemon-reload']);
     await o.exec('systemctl', ['--user', 'disable', `${found.unit}.service`]);

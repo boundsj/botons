@@ -8,6 +8,8 @@ import { homedir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
+import { serviceManager, runService } from '../shared/service-manager.mjs';
+import { spawnSync, type SpawnSyncReturns } from 'node:child_process';
 import { applyLegacyEnv, SHARE_DIRS } from '../shared/legacy-names.mjs';
 import { isBotonsSetting } from '../server/src/config.ts';
 import { findLegacyService, upgradeService } from '../server/src/legacy-upgrade.ts';
@@ -18,6 +20,9 @@ const short = (sha: string | null) => (sha ? sha.slice(0, 12) : 'none');
 
 export interface DeployOptions {
   repo: string;
+  platform?: string;
+  userHome?: string;
+  serviceExec?: (cmd: string, args: string[]) => Pick<SpawnSyncReturns<string>, 'status' | 'stdout' | 'stderr' | 'error'>;
   root: string;
   unit: string;
   port: number;
@@ -213,9 +218,13 @@ async function activate(sha: string, o: DeployOptions): Promise<boolean> {
   const restartAndCheck = async (target: string): Promise<string | null> => {
     o.log(`Restarting ${o.unit}; running turns get up to BOTONS_DRAIN_MS to finish first`);
     try {
-      // A release that crash-looped can leave the unit failed at its start limit, which refuses a restart.
-      await o.exec('systemctl', ['--user', 'reset-failed', o.unit]).catch(() => {});
-      await o.exec('systemctl', ['--user', 'restart', o.unit]);
+      if ((o.platform ?? process.platform) === 'darwin') {
+        runService('restart', { platform: 'darwin', home: o.userHome ?? homedir(), name: o.unit }, 'server', o.serviceExec ?? ((cmd, args) => spawnSync(cmd, args, { encoding: 'utf8' })));
+      } else {
+        // A release that crash-looped can leave the unit failed at its start limit, which refuses a restart.
+        await o.exec('systemctl', ['--user', 'reset-failed', o.unit]).catch(() => {});
+        await o.exec('systemctl', ['--user', 'restart', o.unit]);
+      }
     } catch (err) {
       return (err as Error).message;
     }
@@ -248,7 +257,8 @@ async function activate(sha: string, o: DeployOptions): Promise<boolean> {
     return true;
   }
   o.log(`${o.unit} did not come up healthy on ${short(sha)}: ${problem}`);
-  await o.exec('journalctl', ['--user', '-u', o.unit, '-n', '30', '--no-pager']).catch(() => {});
+  if ((o.platform ?? process.platform) === 'darwin') o.log(`Check launchctl print ${serviceManager({ platform: 'darwin', home: o.userHome ?? homedir(), name: o.unit }).target} and the logs beside the service env file.`);
+  else await o.exec('journalctl', ['--user', '-u', o.unit, '-n', '30', '--no-pager']).catch(() => {});
   pointAt(o.root, 'current', before.current);
   pointAt(o.root, 'previous', before.previous);
   if (!before.current || before.current === sha) {
@@ -257,7 +267,7 @@ async function activate(sha: string, o: DeployOptions): Promise<boolean> {
   }
   o.log(`Rolling back to ${short(before.current)}`);
   const again = await restartAndCheck(before.current);
-  o.log(again ? `${short(before.current)} did not come up either: ${again}. See journalctl --user -u ${o.unit}` : `Back on ${short(before.current)}`);
+  o.log(again ? `${short(before.current)} did not come up either: ${again}. Check the service logs` : `Back on ${short(before.current)}`);
   return false;
 }
 
@@ -367,7 +377,7 @@ async function main() {
   }
   if (process.argv.includes('--rollback')) return rollback(positionals()[0] ?? null, o);
   if (!repo) throw new Error('This copy of deploy.ts is not in a git checkout; pass --repo <checkout>.');
-  if (o.restart && !arg('--unit') && findLegacyService()) o.upgradeNames = () => upgradeService({ exec: (cmd, args) => run(cmd, args), log: o.log });
+  if (process.platform === 'linux' && o.restart && !arg('--unit') && findLegacyService()) o.upgradeNames = () => upgradeService({ exec: (cmd, args) => run(cmd, args), log: o.log });
   return deploy(positionals()[0] ?? 'HEAD', o);
 }
 

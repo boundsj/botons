@@ -82,6 +82,7 @@ mkdirSync(join(profile, 'Default', 'Cache'), { recursive: true });
 writeFileSync(join(profile, 'Default', 'Cookies'), 'cookies\n');
 writeFileSync(join(profile, 'Default', 'Cache', 'data_0'), 'cache\n');
 symlinkSync('myhost-1234', join(profile, 'SingletonLock'));
+symlinkSync('123.0.0.0:1', join(profile, 'RunningChromeVersion'));
 
 test('a backup of a running server is private, passes integrity_check, has the live rows and the archived folders, and is rsynced', async () => {
   const dbPath = join(home, 'botons.db');
@@ -106,7 +107,7 @@ test('a backup of a running server is private, passes integrity_check, has the l
   assert.deepEqual(manifest.folders, ['workspaces', 'shared', 'templates', 'browser']);
   // Browser profiles keep their cookies, without Chromium's lock links (a restore refuses links) or caches.
   assert.ok(archived.includes(`browser/${bot.id}/profile/Default/Cookies`), archived);
-  assert.ok(!archived.includes('SingletonLock') && !archived.includes('Cache/data_0'), archived);
+  assert.ok(!archived.includes('SingletonLock') && !archived.includes('RunningChromeVersion') && !archived.includes('Cache/data_0'), archived);
   assert.doesNotThrow(() => planRestore({ home: tempDir('botons-restore-plan-'), backup: dir, maxSchema: SCHEMA_VERSION }));
 
   assert.equal(statSync(join(home, 'backups')).mode & 0o777, 0o700);
@@ -197,6 +198,14 @@ test(
     chmodSync(join(w1, 'root-owned'), 0o000);
     try {
       const out = await runBackupScript(h);
+      if (process.platform === 'darwin') {
+        assert.equal(out.code, 1, 'BSD tar must refuse an incomplete archive');
+        const dir = join(h, 'backups', listBackups(join(h, 'backups'))[0]);
+        assert.equal(inspect(join(dir, 'botons.db'), ['bots']).integrity, 'ok');
+        assert.equal(manifestOf(dir).workspaces, false);
+        assert.match(manifestOf(dir).workspacesError, /Permission denied/);
+        return;
+      }
       assert.equal(out.code, 0, out.stderr);
       assert.match(out.stderr, /tar warnings \(these files are not in the backup\):/);
       assert.match(out.stderr, /w1\/secret: Warning: Cannot open: Permission denied/);
@@ -255,7 +264,7 @@ test('restoring a backup into a different BOTONS_HOME brings back chats, routine
   assert.equal(restored.mock.turns.at(-1)!.cwd, join(other, 'workspaces', folder));
 });
 
-test('the install script renders a daily, persistent timer that runs the backup script', () => {
+test('the install script renders a daily, persistent timer that runs the backup script', { skip: process.platform !== 'linux' ? 'systemd timer installation needs Linux' : false }, () => {
   const dir = tempDir('botons-units-');
   execFileSync(process.execPath, [join(repo, 'scripts/install-backup-timer.ts'), '--dir', dir], { encoding: 'utf8' });
   const timer = readFileSync(join(dir, 'botons-backup.timer'), 'utf8');

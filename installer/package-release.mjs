@@ -18,7 +18,7 @@ export function packageRelease(out, name = 'getbotons', version = VERSION) {
   if (existsSync(resolve(payload, 'package-lock.json'))) renameSync(resolve(payload, 'package-lock.json'), resolve(payload, 'npm-shrinkwrap.json'));
   for (const item of files.filter(f => f.startsWith('installer/'))) cpSync(item, resolve(out, item), { recursive: true });
   // The installer reads the deprecated names from here before it has the payload's Node (shared/legacy-names.mjs).
-  for (const f of ['legacy-names.mjs', 'legacy-names.d.mts']) cpSync(resolve('shared', f), resolve(out, 'shared', f));
+  for (const f of ['legacy-names.mjs', 'legacy-names.d.mts', 'service-manager.mjs', 'service-manager.d.mts']) cpSync(resolve('shared', f), resolve(out, 'shared', f));
   for (const file of ['README.md', 'LICENSE']) cpSync(file, resolve(out, file));
   writeFileSync(resolve(out, 'package.json'), JSON.stringify({
     name, version, type: 'module', license: 'MIT',

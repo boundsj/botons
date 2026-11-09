@@ -297,7 +297,7 @@ export function sandboxProblem(bin = BWRAP, { quiet = false }: { quiet?: boolean
   }
   let problem: string | null = null;
   let exe: Exe | null = null;
-  if (process.platform !== 'linux') problem = `The sandbox Workspace access needs is bubblewrap on Linux; this server runs on ${process.platform}.`;
+  if (process.platform !== 'linux') problem = `The sandbox Workspace access needs is bubblewrap on Linux; this server runs on ${process.platform === 'darwin' ? 'macOS' : process.platform}.`;
   else if (!filter) problem = `The sandbox Workspace access needs has no socket filter for this machine's architecture (${process.arch}); it is built for x64 and arm64. Workspace access can't run without it.`;
   else {
     exe = resolveExe(bin);

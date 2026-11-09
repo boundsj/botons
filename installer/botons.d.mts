@@ -6,4 +6,6 @@ export function packageCommands(osRelease: string): string[][];
 
 export function sourceVersion(input: string): string;
 
-export function dependencyProblems(probe?: (cmd: string, args: string[]) => {status: number | null; stdout?: string}): string[];
+export function dependencyProblems(probe?: (cmd: string, args: string[]) => {status: number | null; stdout?: string}, host?: string): string[];
+
+export function nodeArchive(version: string, host?: string, cpu?: string): { filename: string; extract: string };

@@ -32,7 +32,7 @@ function hold(botId: string, reply = 'Done on the mock') {
 }
 
 test("the first turn, before any session is saved, is one the move ends: refused unconfirmed, and the old turn can't keep its session", async () => {
-  const bot = server.storeBot('Kevin', 'mock');
+  const bot = server.storeBot('Kevin', 'mock', process.platform === 'linux' ? {} : { access: 'host' });
   const { release, started } = hold(bot.id, 'Kevin replies from the mock');
   server.app.engine.sendMessage(bot.id, 'start on the mock');
   await started;
@@ -73,13 +73,13 @@ test("the first turn, before any session is saved, is one the move ends: refused
 
 test('a turn setting up (its connectors, before the CLI starts) is underway; one still waiting for a slot runs on the new provider', async () => {
   // Stuart's turn holds the only slot.
-  const stuart = server.storeBot('Stuart', 'mock');
+  const stuart = server.storeBot('Stuart', 'mock', process.platform === 'linux' ? {} : { access: 'host' });
   const { release, started } = hold(stuart.id);
   server.app.engine.sendMessage(stuart.id, 'busy');
   await started;
 
   // Bob's turn waits for the slot: it hasn't read Bob yet, so a move now loses nothing.
-  const bob = server.storeBot('Bob', 'mock');
+  const bob = server.storeBot('Bob', 'mock', process.platform === 'linux' ? {} : { access: 'host' });
   server.app.engine.sendMessage(bob.id, 'waiting');
   await new Promise((r) => setImmediate(r));
   const waiting = await preview(bob.id, { provider: 'codex-cli' });
@@ -95,7 +95,7 @@ test('a turn setting up (its connectors, before the CLI starts) is underway; one
   server.mock.script = null;
 
   // Dave's turn has read Dave and is setting up its connectors: no agent process yet, and not "working" in its status.
-  const dave = server.storeBot('Dave', 'mock');
+  const dave = server.storeBot('Dave', 'mock', process.platform === 'linux' ? {} : { access: 'host' });
   const connectors = server.app.connectors;
   const resolve = connectors.resolve.bind(connectors);
   let setUp!: () => void;
@@ -124,7 +124,7 @@ test('a turn setting up (its connectors, before the CLI starts) is underway; one
 });
 
 test('a preview made while idle is stale once a turn starts, or a run is queued', async () => {
-  const bot = server.storeBot('Jerry', 'mock');
+  const bot = server.storeBot('Jerry', 'mock', process.platform === 'linux' ? {} : { access: 'host' });
   await server.chat(bot.id, 'hello');
   assert.ok(server.app.store.getBot(bot.id).sessionId);
   const move = { provider: 'codex-cli' };
@@ -152,7 +152,7 @@ test('a preview made while idle is stale once a turn starts, or a run is queued'
 });
 
 test("a routine run on its own session, underway at the move, is the routine's session ending", async () => {
-  const bot = server.storeBot('Phil', 'mock');
+  const bot = server.storeBot('Phil', 'mock', process.platform === 'linux' ? {} : { access: 'host' });
   const own = server.app.store.createRoutine(bot.id, { name: 'Night check', instruction: 'Check', session: 'own' });
   const { release, started } = hold(bot.id);
   const run = server.app.engine.triggerRoutine(own.id, 'manual', null);
@@ -179,7 +179,7 @@ const turnsOf = (botId: string) => server.mock.turns.filter((t) => t.env.BOTON_B
 const noteOf = (t: TurnRequest) => t.prompt.includes('<provider_switch>');
 
 test("moved away and back while the first turn runs: the old turn's session is not kept, and the next turn starts fresh with the note", async () => {
-  const bot = server.storeBot('Carl', 'mock');
+  const bot = server.storeBot('Carl', 'mock', process.platform === 'linux' ? {} : { access: 'host' });
   const { release, started } = hold(bot.id, 'Carl replies');
   server.app.engine.sendMessage(bot.id, 'start');
   await started;
@@ -201,7 +201,7 @@ test("moved away and back while the first turn runs: the old turn's session is n
 });
 
 test("moved away and back while a routine runs on its own session: the run's session is not kept, and the next run starts fresh", async () => {
-  const bot = server.storeBot('Jorge', 'mock');
+  const bot = server.storeBot('Jorge', 'mock', process.platform === 'linux' ? {} : { access: 'host' });
   const own = server.app.store.createRoutine(bot.id, { name: 'Sweep', instruction: 'Sweep', session: 'own' });
   const { release, started } = hold(bot.id);
   const run = server.app.engine.triggerRoutine(own.id, 'manual', null);
@@ -221,7 +221,7 @@ test("moved away and back while a routine runs on its own session: the run's ses
 });
 
 test("moved away and back while a turn sets up its connectors: it neither picks up the later note nor marks it done", async () => {
-  const bot = server.storeBot('Tom', 'mock');
+  const bot = server.storeBot('Tom', 'mock', process.platform === 'linux' ? {} : { access: 'host' });
   const connectors = server.app.connectors;
   const resolve = connectors.resolve.bind(connectors);
   let setUp!: () => void;
@@ -255,7 +255,7 @@ test("moved away and back while a turn sets up its connectors: it neither picks 
 });
 
 test("moved away and back while a turn carries on the saved session: that session ends, and the next turn starts fresh with the note", async () => {
-  const bot = server.storeBot('Mel', 'mock');
+  const bot = server.storeBot('Mel', 'mock', process.platform === 'linux' ? {} : { access: 'host' });
   await server.chat(bot.id, 'hello');
   const saved = server.app.store.getBot(bot.id).sessionId;
   assert.ok(saved);
@@ -287,7 +287,7 @@ test("moved away and back while a turn carries on the saved session: that sessio
 });
 
 test("moved away and back while a routine run carries on its own saved session: that session ends, and the next run starts fresh", async () => {
-  const bot = server.storeBot('Otto', 'mock');
+  const bot = server.storeBot('Otto', 'mock', process.platform === 'linux' ? {} : { access: 'host' });
   const own = server.app.store.createRoutine(bot.id, { name: 'Tally', instruction: 'Tally', session: 'own' });
   const first = server.app.engine.triggerRoutine(own.id, 'manual', null);
   await until(() => server.app.store.findRun(first.id)?.status === 'succeeded' && server.app.engine.statusOf(bot.id).state === 'idle');
@@ -314,7 +314,7 @@ test("moved away and back while a routine run carries on its own saved session: 
 });
 
 test('moved away and back while idle: the saved session resumes, without the note', async () => {
-  const bot = server.storeBot('Ken', 'mock');
+  const bot = server.storeBot('Ken', 'mock', process.platform === 'linux' ? {} : { access: 'host' });
   await server.chat(bot.id, 'hello');
   const saved = server.app.store.getBot(bot.id).sessionId;
   assert.ok(saved);
@@ -327,7 +327,7 @@ test('moved away and back while idle: the saved session resumes, without the not
 });
 
 test("moved away and back while idle: a routine's own saved session resumes", async () => {
-  const bot = server.storeBot('Norbert', 'mock');
+  const bot = server.storeBot('Norbert', 'mock', process.platform === 'linux' ? {} : { access: 'host' });
   const own = server.app.store.createRoutine(bot.id, { name: 'Count', instruction: 'Count', session: 'own' });
   const first = server.app.engine.triggerRoutine(own.id, 'manual', null);
   await until(() => server.app.store.findRun(first.id)?.status === 'succeeded' && server.app.engine.statusOf(bot.id).state === 'idle');
@@ -341,7 +341,7 @@ test("moved away and back while idle: a routine's own saved session resumes", as
 });
 
 test("each switch is a new generation: a turn's stamp from before it can neither keep a session nor mark its note done", async () => {
-  const bot = server.storeBot('Herb', 'mock');
+  const bot = server.storeBot('Herb', 'mock', process.platform === 'linux' ? {} : { access: 'host' });
   const store = server.app.store;
   const before = { contextSince: store.getBot(bot.id).contextSince, provider: 'mock', generation: store.switchGeneration(bot.id) };
   assert.equal(before.generation, 0);
@@ -361,7 +361,7 @@ test("each switch is a new generation: a turn's stamp from before it can neither
 
 // Last: Codex's usage limit stays for the rest of this server.
 test('a usage limit that starts after the review refuses the confirmation', async () => {
-  const bot = server.storeBot('Mark', 'mock');
+  const bot = server.storeBot('Mark', 'mock', process.platform === 'linux' ? {} : { access: 'host' });
   await server.chat(bot.id, 'hello');
   const p = await preview(bot.id, { provider: 'codex-cli' });
   assert.equal(p.readiness.usageLimitUntil, null);

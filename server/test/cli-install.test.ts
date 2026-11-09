@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, existsSync, readFileSync, symlinkSync, mkdirSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, realpathSync, rmSync, existsSync, readFileSync, symlinkSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { CliInstaller } from '../src/cli-install.ts';
@@ -9,7 +9,7 @@ import { loadConfig } from '../src/config.ts';
 import { startServer, until } from './helpers.ts';
 
 function fixture() {
-  const home = mkdtempSync(join(tmpdir(), 'botons-cli-install-'));
+  const home = realpathSync(mkdtempSync(join(tmpdir(), 'botons-cli-install-')));
   const root = join(home, 'managed');
   let selected = '/usr/local/bin/codex';
   const phases: string[] = [];

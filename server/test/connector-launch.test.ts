@@ -91,7 +91,7 @@ test('a folder that is a second mount of a workspace is never shown, by its own 
   }
 });
 
-test('a folder that holds a second mount of a workspace is shown with that place hidden', () => {
+test('a folder that holds a second mount of a workspace is shown with that place hidden', { skip: process.platform !== 'linux' && 'Requires the Linux mount table' }, () => {
   const { ws, tools, policy, done } = outsideTemp();
   try {
     writeFileSync(join(tools, 'server.mjs'), '');
@@ -188,7 +188,7 @@ test("without bubblewrap no local connector starts, and it says why", () => {
     const jail = connectorJail({ apart: [], hidden: [], dir: tmpdir() });
     assert.ok('problem' in jail);
     assert.match(jail.problem, /starts only in the Workspace sandbox, which can't run here/);
-    assert.match(jail.problem, /not installed/);
+    assert.match(jail.problem, process.platform === 'linux' ? /not installed/ : /bubblewrap on Linux/);
   } finally {
     useSandboxBinary('bwrap');
   }

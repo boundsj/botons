@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto';
+import { browserSearchPaths } from './browser-paths.ts';
 import { brotliDecompressSync, gunzipSync, inflateSync, zstdDecompressSync } from 'node:zlib';
 import { appendFileSync, chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
@@ -111,7 +112,7 @@ const HANDOVER_ENDS: Record<HandoverEnd, string> = {
 /** The most of an allowed request's answer that is passed to the page. */
 const ANSWER_MAX = 20 * 1024 * 1024;
 const JOURNAL_KEEP = 2000;
-const DEFAULT_PATHS = ['/usr/bin/chromium', '/usr/bin/chromium-browser', '/usr/bin/google-chrome', '/usr/bin/google-chrome-stable', '/opt/google/chrome/chrome'];
+const DEFAULT_PATHS = browserSearchPaths();
 export const CAPABILITY =
   "Opens pages on the listed sites (loading them as any browser does, with GET requests), reads their text, links and controls, goes back, takes screenshots, clicks and types (never into password, code or card fields). Once it clicks or types on a page, nothing that page sends goes without your card: the request it makes (a form, a POST, or a GET) waits on a card that shows exactly that request, sent once only if you allow it while the Boton's step waits, and anything else the page sends is refused. It never signs in itself: when a step is yours (a sign-in, a code, a captcha), it asks in the chat and you tap Take over to do it in its browser (it can't use the browser until you hand it back, and keeps the sign-in after). It does not download or upload.";
 const DESKTOP_WHY =

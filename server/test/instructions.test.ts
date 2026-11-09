@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import { instructionPaths, snapshotInstructions } from '../src/instructions.ts';
 import { tempDir } from './helpers.ts';
 
-test('a sandboxed turn may not write the instruction files, and what it created, changed, deleted or linked among them is put back', async () => {
+test('a sandboxed turn may not write the instruction files, and what it created, changed, deleted or linked among them is put back', { skip: process.platform !== 'linux' && 'Requires Linux directory handles for confined file operations' }, async () => {
   assert.deepEqual(instructionPaths('/ws'), ['/ws/CLAUDE.md', '/ws/CLAUDE.local.md', '/ws/AGENTS.md', '/ws/AGENTS.override.md', '/ws/.codex', '/ws/.agents']);
 
   const ws = tempDir('botons-instructions-');
@@ -52,7 +52,7 @@ test('a sandboxed turn may not write the instruction files, and what it created,
   assert.equal(readlinkSync(join(ws, 'AGENTS.md')), 'docs/AGENTS.md');
 });
 
-test('putting instruction files back never follows a folder the turn replaced with a link', async () => {
+test('putting instruction files back never follows a folder the turn replaced with a link', { skip: process.platform !== 'linux' && 'Requires Linux directory handles for confined file operations' }, async () => {
   const root = tempDir('botons-instructions-parent-');
   const ws = join(root, 'ws');
   const outside = join(root, 'outside');
@@ -87,7 +87,7 @@ test('putting instruction files back never follows a folder the turn replaced wi
  * in it the turn can swap the folder, or the file, for a link to one of the owner's. Whatever it swaps, the copy kept
  * (and later written back into the workspace, where the turn can read it) is never the owner's file.
  */
-test("noting the instruction files never reads the owner's file through a folder or file swapped meanwhile", async () => {
+test("noting the instruction files never reads the owner's file through a folder or file swapped meanwhile", { skip: process.platform !== 'linux' && 'Requires Linux directory handles for confined file operations' }, async () => {
   const root = tempDir('botons-instructions-capture-');
   const ws = join(root, 'ws');
   const outside = join(root, 'outside');
@@ -128,7 +128,7 @@ test("noting the instruction files never reads the owner's file through a folder
   assert.equal(readFileSync(join(outside, 'secret'), 'utf8'), 'OUTSIDE-MARKER');
 });
 
-test('a named pipe or an oversized file among the instruction files is never read whole or waited on', async () => {
+test('a named pipe or an oversized file among the instruction files is never read whole or waited on', { skip: process.platform !== 'linux' && 'Requires Linux directory handles for confined file operations' }, async () => {
   const ws = tempDir('botons-instructions-bounded-');
   const { spawnSync } = await import('node:child_process');
   assert.equal(spawnSync('mkfifo', [join(ws, 'AGENTS.md')]).status, 0);

@@ -8,7 +8,7 @@ import { plan, summary, installOutput } from '../../installer/output.mjs';
 import { report, isProblem, type Finding } from '../../scripts/doctor.ts';
 
 test('clean install transcript stays short and uses the immediate command', () => {
-  const transcript = plan('install', 'codex') + '\nContinue? [Y/n]\n✓ Runtime and brains ready (2s)\n✓ Botons and backups installed (5s)\n✓ Setup ready (6s)\n' + summary({ command: '/tmp/example-user/.local/bin/botons', url: 'http://127.0.0.1:7777' });
+  const transcript = plan('install', 'codex', 'linux') + '\nContinue? [Y/n]\n✓ Runtime and brains ready (2s)\n✓ Botons and backups installed (5s)\n✓ Setup ready (6s)\n' + summary({ command: '/tmp/example-user/.local/bin/botons', url: 'http://127.0.0.1:7777' });
   assert.equal(transcript, `• Set up Node 24 for Botons (system Node untouched).
 • Install missing sandbox tools, including bubblewrap (sudo).
 • Start Botons at boot (linger), configure backups and PATH.
@@ -64,4 +64,11 @@ test('subprocess log writes append without overwriting command details', () => {
 test('summary keeps start and boot persistence next steps visible', () => {
   assert.match(summary({ url: 'http://localhost:7777', running: false }), /Start Botons: botons serve/);
   assert.match(summary({ url: 'http://localhost:7777', bootReady: false }), /Start at boot: sudo loginctl enable-linger/);
+});
+
+test('macOS plan describes login persistence and unavailable Workspace sandbox', () => {
+  const text = plan('install', undefined, 'darwin');
+  assert.match(text, /Full computer access/);
+  assert.match(text, /at login with a LaunchAgent/);
+  assert.doesNotMatch(text, /sudo|linger|at boot/);
 });

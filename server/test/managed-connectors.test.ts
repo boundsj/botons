@@ -167,6 +167,7 @@ test("an upgrade turns a Boton's codex:notes into a notice offering oauth:notes;
   assert.deepEqual((await s.call<Bot>('GET', `/api/bots/${'bot_stuart'}`)).data.connections, ['lib:wiki']);
 
   // The Boton's turn is told too, and it is never silent.
+  if (process.platform !== 'linux') s.app.store.updateBot('bot_kevin', { access: 'host' }, s.app.providers.ids());
   const told = await turnOf(s, s.claude, s.app.store.getBot('bot_kevin'));
   assert.match(told.stdin, /Connectors taken off you because Botons no longer uses[^\n]*: notes\n/);
 

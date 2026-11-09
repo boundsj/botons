@@ -464,6 +464,7 @@ export class ClaudeCliProvider implements Provider {
   }
 
   async runTurn(req: TurnRequest): Promise<TurnResult> {
+    if (req.access === 'workspace' && !req.toolFree && process.platform !== 'linux') throw new ProviderError(claudeWorkspaceProblem()!);
     prepareCliHomes();
     if (req.toolFree && (req.mcpServers?.length || req.askFirst)) throw new Error('A tool-free turn takes no MCP servers or Ask first rules');
     let sessionId: string | null = req.sessionId;

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import { heldLookups } from '../src/held-dir.ts';
 import { sharedImage } from '../../web/src/files.ts';
 import { screenshotToChat, type ShareFile } from '../src/browser-screenshot.ts';
 import { formatResult } from '../src/cli/browser-mcp.ts';
@@ -13,7 +14,7 @@ const PAGE = { url: 'https://example.com/', title: 'Example Domain' };
 
 // Chromium is not needed: the capture is stubbed, and everything after it (the save in the workspace, the engine's
 // shareFile, the store and the messages API) is the server's own, during a Codex turn with Full computer access.
-test("a Codex Full computer turn's screenshot is saved in the workspace, recorded in the chat as that file, and said to be shown", async () => {
+test("a Codex Full computer turn's screenshot is saved in the workspace, recorded in the chat as that file, and said to be shown", { skip: !heldLookups && 'safe screenshot writes require Linux folder handles' }, async () => {
   const s = await startServer({ fakeClis: true });
   useTestCodexHome(s.cfg.home);
   try {

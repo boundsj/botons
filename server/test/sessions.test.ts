@@ -79,7 +79,9 @@ test('agents get only allowlisted environment variables', async () => {
       const { env } = cli.calls()[0];
       // And the same five under their deprecated names, for one release (shared/legacy-names.mjs).
       const set = ['BOTONS_API', 'BOTON_BOT_ID', 'BOTON_TOKEN', 'BOTON_WORKSPACE', 'BOTONS_NODE'].flatMap((k) => [k, ...earlierEnvNames(k)]);
-      const outside = Object.keys(env).filter((k) => !INHERITED_ENV.includes(k) && !k.startsWith('LC_') && !set.includes(k));
+      // CoreFoundation adds its own locale marker to a launched macOS process.
+      const osAdded = process.platform === 'darwin' ? ['__CF_USER_TEXT_ENCODING'] : [];
+      const outside = Object.keys(env).filter((k) => !osAdded.includes(k) && !INHERITED_ENV.includes(k) && !k.startsWith('LC_') && !set.includes(k));
       assert.deepEqual(outside, [], provider);
       assert.equal(env.BOTON_BOT_ID, bot);
       assert.equal(env.BOTONS_API, base);
@@ -94,7 +96,7 @@ test('agents get only allowlisted environment variables', async () => {
   }
 });
 
-test('a Workspace Boton cannot read the database or other workspaces; Full computer has no such rules', async () => {
+test('a Workspace Boton cannot read the database or other workspaces; Full computer has no such rules', { skip: process.platform !== 'linux' && 'Requires the Linux Workspace sandbox' }, async () => {
   const kevin = newBot('claude-cli');
   const stuart = newBot('codex-cli');
   const ws = (id: string) => app.store.getBot(id).workspace;
@@ -124,7 +126,7 @@ test('a Workspace Boton cannot read the database or other workspaces; Full compu
   assert.deepEqual(JSON.parse(host[host.indexOf('--settings') + 1]), { autoMemoryEnabled: false, disableAllHooks: true });
 });
 
-test('a webhook run of a Full computer Boton runs in the Workspace sandbox with claude and with codex; a manual run does not', async () => {
+test('a webhook run of a Full computer Boton runs in the Workspace sandbox with claude and with codex; a manual run does not', { skip: process.platform !== 'linux' && 'Requires the Linux Workspace sandbox and directory handles' }, async () => {
   for (const [cli, provider] of [
     [claude, 'claude-cli'],
     [codex, 'codex-cli'],

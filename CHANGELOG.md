@@ -4,6 +4,14 @@ What changes for people running Botons. Release notes are written from this when
 
 ## Unreleased
 
+## 0.1.1
+
+### Runs on a Mac
+
+- **Botons now installs on macOS** (Apple Silicon or Intel) as well as Linux: `npx getbotons install` sets it up as a per-user launchd service, with the nightly backup as a launchd job. Start, stop, status, upgrade, doctor, backup, restore and uninstall work the same on both.
+- On a Mac, choose **Full computer access** for your Botons. Some things still need Linux and say so plainly instead of running with weaker protection: **Workspace access**, connectors that run a local command, moving files to the trash (Restore, Clear inbox and the daily inbox cleanup), and installing skill packages. Delete forever, remote connectors and everything else work.
+- Backups no longer include the managed browser's transient version markers.
+
 ## 0.1.0
 
 ### Botons: a new name and look

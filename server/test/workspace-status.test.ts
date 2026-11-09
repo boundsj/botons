@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { startServer } from './helpers.ts';
+import { startServer, tempDir, until, useTestCodexHome } from './helpers.ts';
 import { useSandboxBinary } from '../src/sandbox.ts';
 
 test('API sandbox status stays independent of CLI preflight and sign-in', async () => {
@@ -33,4 +33,36 @@ test('Claude preflight requires socat and private network/process namespaces', a
   assert.match(claudeWorkspaceProblem({bwrap, socat: join(root, 'missing')})!, /socat/);
   writeFileSync(bwrap, '#!/bin/sh\nexit 1\n', { mode: 0o700 });
   assert.match(claudeWorkspaceProblem({bwrap, socat})!, /network or process/);
+});
+
+test('non-Linux hosts refuse CLI Workspace turns before any CLI starts', { skip: process.platform === 'linux' && 'Covers hosts without the Linux Workspace sandbox' }, async () => {
+  const { claudeWorkspaceProblem } = await import('../src/providers/cli-check.ts');
+  const { probeCodexWorkspace } = await import('../src/providers/codex-workspace.ts');
+  const { ClaudeCliProvider } = await import('../src/providers/claude-cli.ts');
+  assert.match(claudeWorkspaceProblem()!, /needs Linux.*Full computer access/);
+  assert.match((await probeCodexWorkspace('/nonexistent/codex'))!, /needs Linux.*Full computer access/);
+  const provider = new ClaudeCliProvider('/nonexistent/claude');
+  for (const sessionId of [null, 'fixture-session']) await assert.rejects(provider.runTurn({
+    cwd: '/nonexistent', sessionId, access: 'workspace', privatePaths: [], env: {}, signal: new AbortController().signal,
+    prompt: 'hello', systemPrompt: 'fixture', model: '', timeoutMs: 1000, onActivity: () => {},
+  }), /needs Linux.*Full computer access/);
+});
+
+
+test('a Full computer CLI Boton still refuses sandboxed webhook runs on non-Linux hosts', { skip: process.platform === 'linux' && 'Covers hosts without the Linux Workspace sandbox' }, async () => {
+  useTestCodexHome(tempDir('botons-webhook-refusal-'));
+  const s = await startServer({ fakeClis: true });
+  try {
+    for (const [provider, cli] of [['claude-cli', s.claude], ['codex-cli', s.codex]] as const) {
+      const bot = await s.newBot('Kevin', { provider, access: 'host' });
+      const routine = await s.newRoutine(bot.id, { name: 'Hook', instruction: 'Reply OK', webhook: true });
+      const response = await s.hook(routine, '', { body: 'hello' });
+      assert.equal(response.status, 202);
+      const { runId } = await response.json();
+      const ended = await until(async () => (await s.runsOf(routine.id)).find(r => r.id === runId && r.status === 'failed'));
+      assert.match(ended.error!, /Workspace sandbox needs Linux/);
+      assert.equal(cli.calls().length, 0, 'the forced Workspace run never starts its CLI');
+      assert.equal(s.app.store.getBot(bot.id).access, 'host', 'the saved access is unchanged');
+    }
+  } finally { await s.stop(); }
 });

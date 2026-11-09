@@ -61,7 +61,7 @@ type Request = TurnRequest & { activities: string[]; texts: string[]; steps: Tur
 function request(over: Partial<TurnRequest> = {}): Request {
   const [activities, texts, steps]: [string[], string[], TurnStep[]] = [[], [], []];
   return {
-    cwd: dir, sessionId: null, systemPrompt: 'You are a test Boton.', prompt: 'Reply with the single word: pong', model: '', access: 'workspace', privatePaths: [],
+    cwd: dir, sessionId: null, systemPrompt: 'You are a test Boton.', prompt: 'Reply with the single word: pong', model: '', access: process.platform === 'linux' ? 'workspace' : 'host', privatePaths: [],
     env: { BOTON_BOT_ID: 'bot_test' }, signal: new AbortController().signal, timeoutMs: 10_000,
     onActivity: (a) => activities.push(a), onText: (t) => texts.push(t), onStep: (st) => steps.push(st),
     activities, texts, steps, ...over,

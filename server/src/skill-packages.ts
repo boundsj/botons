@@ -71,7 +71,7 @@ function canPin(): boolean {
   return lookups;
 }
 
-const UNPINNED = "Botons can't read packages safely on this system: it reads them only through folders it holds open (/proc/self/fd, on Linux).";
+const UNPINNED = "Installing skill packages needs Linux folders held open safely; this system cannot provide that protection. Create a skill by pasting its text instead.";
 
 /** The packages folder, opened; null if there is no such folder. */
 function openRoot(dir: string): number | null {

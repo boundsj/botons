@@ -1,6 +1,6 @@
 ---
 name: install-botons
-description: Install, upgrade, check or repair a Botons server for its owner, with Docker Compose or the systemd user service, stopping for the owner's go-ahead before anything that exposes it, changes the host or creates a credential. Use when asked to set up, install, deploy for the first time, upgrade, diagnose or fix a Botons install.
+description: Install, upgrade, check or repair a Botons server for its owner, with Docker Compose, a systemd user service or a macOS LaunchAgent, stopping for the owner's go-ahead before anything that exposes it, changes the host or creates a credential. Use when asked to set up, install, deploy for the first time, upgrade, diagnose or fix a Botons install.
 ---
 
 # Install, upgrade and diagnose Botons
@@ -81,6 +81,23 @@ npm run doctor
 ```
 
 `loginctl enable-linger "$USER"` (starting at boot before login) is a host change: ask. The env file `~/.config/botons/env` needs a `PATH` that finds node and the CLIs; doctor's `agent CLIs` line shows whether the service's PATH does.
+
+## macOS host installs
+
+The managed installer supports Apple Silicon and Intel Macs. It uses per-user
+LaunchAgents after login, with daily backups, and does not need sudo or linger.
+Use `botons start`, `botons stop`, `botons restart` and `botons status` for the
+managed service. Logs are under the environment file's directory in `logs/`.
+For a checkout deployment, `service:install` and `backup:install` print the exact
+`launchctl bootstrap` commands for the generated plists. Apply the same owner
+consent rules above before starting a real installation.
+
+Choose Full computer access explicitly: Workspace access and local command MCP
+connectors require Linux. Workspace file browsing, uploads, trash and package
+installs are refused because safe folder-handle operations are unavailable.
+See README's macOS section for the complete limits. Never bypass these checks
+with a weaker sandbox. Doctor reports the platform limits without failing a
+healthy Full computer installation.
 
 ## 4. Upgrade
 

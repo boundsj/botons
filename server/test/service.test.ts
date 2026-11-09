@@ -70,7 +70,7 @@ function canVerifyUnits(): boolean {
   return spawnSync('systemd-analyze', ['--user', 'verify', join(d, 'probe.service')]).status === 0;
 }
 
-test('service:install writes a unit that runs node directly, restarts on failure but not on exit 78, and an env file with PATH and the CLIs', () => {
+test('service:install writes a unit that runs node directly, restarts on failure but not on exit 78, and an env file with PATH and the CLIs', { skip: process.platform !== 'linux' ? 'systemd unit installation needs Linux' : false }, () => {
   const t = tempDir('botons-service-');
   const bins = join(t, 'tools');
   executable(join(bins, 'claude'));

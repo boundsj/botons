@@ -41,6 +41,13 @@ function put(bot: Bot, rel: string, content: string | Buffer, minutesAgo = 0) {
   utimesSync(p, t, t);
 }
 
+/** Attachment protocol tests use an existing workspace file; upload confinement is tested separately. */
+function attachment(bot: Bot, name: string, body: Buffer | string): FileRef {
+  const path = `inbox/${name}`;
+  put(bot, path, body);
+  return { name, path, size: Buffer.byteLength(body), type: name.endsWith('.png') ? 'image/png' : 'text/plain' };
+}
+
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
 
 /** The `botons` CLI in `cwd`, with a turn's environment. */
@@ -54,7 +61,7 @@ const botonCli = (env: Record<string, string>, cwd: string, ...args: string[]) =
     ),
   );
 
-test('the Files listing shows a folder newest first, and folders open by path', async () => {
+test('the Files listing shows a folder newest first, and folders open by path', { skip: process.platform !== 'linux' && 'Requires Linux directory handles' }, async () => {
   const bot = await newBot('Lister');
   put(bot, 'old.txt', 'old', 60);
   put(bot, 'reports/weekly.md', '# Weekly', 30);
@@ -87,7 +94,7 @@ test('the Files listing shows a folder newest first, and folders open by path', 
   assert.equal((await list(bot, 'nope')).status, 404);
 });
 
-test('raw files: images, SVG, PDFs and text show inline with a fixed type; HTML and the rest download, never as a document of the app', async () => {
+test('raw files: images, SVG, PDFs and text show inline with a fixed type; HTML and the rest download, never as a document of the app', { skip: process.platform !== 'linux' && 'Requires Linux directory handles' }, async () => {
   const bot = await newBot('Previewer');
   put(bot, 'reports/weekly.md', '# Weekly\n\n- shipped files');
   put(bot, 'chart.png', PNG);
@@ -159,9 +166,12 @@ test('a FIFO (or other special file) is refused at once, and never ties up the s
       return res.status;
     }));
     assert.deepEqual(answers, names.map(() => 400));
-    assert.equal(await (await raw(bot, 'ok.txt')).text(), 'still here');
+    const ok = await raw(bot, 'ok.txt');
+    if (process.platform === 'linux') assert.equal(await ok.text(), 'still here');
+    else assert.equal(ok.status, 501);
     assert.equal((await call('POST', `/api/bots/${bot.id}/messages`, { text: 'hi', attachments: [{ path: 'pipe-0.png' }] })).status, 400);
-    assert.deepEqual((await list(bot)).data.entries.map((e) => e.name), ['ok.txt']);
+    if (process.platform === 'linux') assert.deepEqual((await list(bot)).data.entries.map((e) => e.name), ['ok.txt']);
+    else assert.equal((await list(bot)).status, 501);
   } finally {
     // If an open did block, a writer lets it go so the test can finish.
     for (const n of names) {
@@ -172,7 +182,7 @@ test('a FIFO (or other special file) is refused at once, and never ties up the s
   }
 });
 
-test('paths with ../, absolute paths and symlinks that lead outside the workspace are 403, nothing outside is read, and listings leave such links out', async () => {
+test('paths with ../, absolute paths and symlinks that lead outside the workspace are 403, nothing outside is read, and listings leave such links out', { skip: process.platform !== 'linux' && 'Requires Linux directory handles' }, async () => {
   const bot = await newBot('Jailed');
   const other = await newBot('Neighbor');
   put(other, 'private.txt', 'NEIGHBOR SECRET');
@@ -228,7 +238,7 @@ test('only paired devices can browse, fetch or upload; a Boton token cannot', as
   assert.deepEqual(inboxOf(bot), []);
 });
 
-test('an upload lands in inbox/ as <date>-<safe name>, never replaces a file, and needs octet-stream', async () => {
+test('an upload lands in inbox/ as <date>-<safe name>, never replaces a file, and needs octet-stream', { skip: process.platform !== 'linux' && 'Requires Linux directory handles for confined file operations' }, async () => {
   const bot = await newBot('Receiver');
   const first = await upload(bot, 'Screen Shot 2026.png', PNG);
   assert.equal(first.status, 201);
@@ -296,7 +306,7 @@ function overLimitChunked(path: string, headers: Record<string, string>): Promis
   });
 }
 
-test('an upload over the limit is 413 and leaves no partial file, whether or not it says its size', async () => {
+test('an upload over the limit is 413 and leaves no partial file, whether or not it says its size', { skip: process.platform !== 'linux' && 'Requires Linux directory handles for confined file operations' }, async () => {
   const bot = await newBot('Bounded');
   const declared = await upload(bot, 'big.bin', Buffer.alloc(UPLOAD_MAX_BYTES + 1, 7));
   assert.equal(declared.status, 413);
@@ -316,7 +326,7 @@ test('an upload over the limit is 413 and leaves no partial file, whether or not
   assert.equal(((await ok.json()) as FileRef).size, UPLOAD_MAX_BYTES);
 });
 
-test('an upload that is cut off leaves no partial file, and temp files a killed server left are cleared by the next upload once old', async () => {
+test('an upload that is cut off leaves no partial file, and temp files a killed server left are cleared by the next upload once old', { skip: process.platform !== 'linux' && 'Requires Linux directory handles for confined file operations' }, async () => {
   const bot = await newBot('Interrupted');
   await new Promise<void>((done) => {
     const r = request(`${base}/api/bots/${bot.id}/uploads?name=half.bin`, {
@@ -375,8 +385,8 @@ test('only uploads may skip JSON: other mutating /api routes still refuse non-JS
 
 test('a message with attachments: meta lists them, the prompt gives their absolute paths, and Codex gets the images', async () => {
   const bot = await newBot('Looker');
-  const shot = await uploaded(bot, 'screenshot.png', PNG);
-  const log = await uploaded(bot, 'server.log', 'boom\n');
+  const shot = attachment(bot, 'screenshot.png', PNG);
+  const log = attachment(bot, 'server.log', 'boom\n');
   const sent = await call<Message>('POST', `/api/bots/${bot.id}/messages`, { text: 'What is wrong here?', attachments: [{ path: shot.path }, { path: log.path }] });
   assert.equal(sent.status, 202);
   assert.deepEqual(sent.data.meta?.attachments, [shot, log]);
@@ -420,8 +430,8 @@ test('attachments are checked again when the turn starts: one swapped for a link
   const bot = await newBot('Swapper');
   const other = await newBot('Bystander');
   put(other, 'inbox/private.png', PNG);
-  const shot = await uploaded(bot, 'shot.png', PNG);
-  const kept = await uploaded(bot, 'kept.png', PNG);
+  const shot = attachment(bot, 'shot.png', PNG);
+  const kept = attachment(bot, 'kept.png', PNG);
   // A slow turn first, so the message waits in the queue.
   assert.equal((await s.send(bot.id, 'SLOW_PLEASE:400')).status, 202);
   await until(() => app.engine.statusOf(bot.id).state !== 'idle');
@@ -470,8 +480,9 @@ test('`botons share reports/weekly.md` posts a chip that opens the file; a Boton
   assert.equal(chips[0].text, 'Shared reports/weekly.md');
   assert.deepEqual(chips[0].meta?.file, { name: 'weekly.md', path: 'reports/weekly.md', size: 26, type: 'text/markdown', title: 'Weekly report' });
   const opened = await raw(bot, chips[0].meta!.file!.path);
-  assert.equal(opened.status, 200);
-  assert.equal(await opened.text(), '# Weekly report\n\nAll good.');
+  assert.equal(opened.status, process.platform === 'linux' ? 200 : 501);
+  if (process.platform === 'linux') assert.equal(await opened.text(), '# Weekly report\n\nAll good.');
+  else assert.match(await opened.text(), /needs Linux directory handles/);
 
   const other = await newBot('Theirs');
   put(other, 'x.md', 'x');
@@ -523,4 +534,19 @@ test('safeName keeps letters, digits, dots, dashes and underscores; servingOf sh
   const d = disposition('attachment', 'a "b"; c\r\n.txt');
   assert.ok(!/[\r\n]/.test(d));
   assert.match(d, /^attachment; filename="a _b__ c__.txt"; filename\*=UTF-8''a%20%22b%22%3B%20c%0D%0A\.txt$/);
+});
+
+test('without Linux directory handles browsing and downloads refuse without exposing files', { skip: process.platform === 'linux' && 'Covers hosts without Linux directory handles' }, async () => {
+  const bot = await newBot('Kevin');
+  put(bot, 'private.txt', 'FILE-CONTENT-MARKER');
+  for (const path of ['', 'folder', '../outside']) {
+    const res = await list(bot, path);
+    assert.equal(res.status, 501);
+    assert.doesNotMatch(JSON.stringify(res.data), /private.txt|FILE-CONTENT-MARKER/);
+  }
+  const res = await raw(bot, 'private.txt');
+  assert.equal(res.status, 501);
+  const body = await res.text();
+  assert.match(body, /needs Linux directory handles/);
+  assert.doesNotMatch(body, /FILE-CONTENT-MARKER/);
 });

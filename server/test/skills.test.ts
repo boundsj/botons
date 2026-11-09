@@ -125,7 +125,9 @@ test('botons skill create saves an attributed skill to the library; a Boton chan
   // --file reads a SKILL.md in its workspace (relative to the current folder).
   mkdirSync(join(bot.workspace, 'drafts'), { recursive: true });
   writeFileSync(join(bot.workspace, 'drafts', 'SKILL.md'), '---\nname: triage-inbox\ndescription: "Sort the inbox into act, read, archive."\n---\n\n# Triage\n\nRead each mail; sort it.\n');
-  const saved = await boton(bot, 'skill', 'create', '--file', 'drafts/SKILL.md', { cwd: bot.workspace });
+  const saved = process.platform === 'linux'
+    ? await boton(bot, 'skill', 'create', '--file', 'drafts/SKILL.md', { cwd: bot.workspace })
+    : await boton(bot, 'skill', 'create', '--name', 'triage-inbox', '--description', 'Sort the inbox into act, read, archive.', '--body', '# Triage\n\nRead each mail; sort it.');
   assert.equal(saved.code, 0, saved.stderr);
   assert.match(saved.stdout, /Only you can use it until your owner approves it/);
   const skill = (await call<Skill>('GET', '/api/skills/triage-inbox')).data;
@@ -163,7 +165,7 @@ test('botons skill create saves an attributed skill to the library; a Boton chan
   assert.equal((await call('POST', `/api/bots/${bot.id}/skills`, { name: 'z', description: 'z', body: 'z' }, sandboxed)).status, 403);
 });
 
-test('botons skill --file reads only files in the workspace, whatever the current folder, symlinks and hard links', async () => {
+test('botons skill --file reads only files in the workspace, whatever the current folder, symlinks and hard links', { skip: process.platform !== 'linux' && 'Requires Linux directory handles for confined file operations' }, async () => {
   const bot = await newBot('Otto');
   mkdirSync(bot.workspace, { recursive: true });
   const outside = join(home, 'private');
@@ -202,7 +204,7 @@ test('botons skill --file reads only files in the workspace, whatever the curren
   assert.equal((await call<Skill>('GET', '/api/skills/otto-thing')).data.body, 'Do the thing.');
 });
 
-test('readWorkspaceFile: regular files only, and a size cap', () => {
+test('readWorkspaceFile: regular files only, and a size cap', { skip: process.platform !== 'linux' && 'Requires Linux directory handles for confined file operations' }, () => {
   const ws = join(tempDir('botons-wsfile-'), 'ws');
   const sibling = `${ws}-other`;
   mkdirSync(ws);

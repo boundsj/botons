@@ -6,21 +6,21 @@ Botons is a self-hosted home for AI agents that runs your own Claude Code or Cod
 
 ## Quick start
 
-You need a Linux box and Node 20+. Sign in to your own Claude Code and/or Codex on that box.
+You need Linux or macOS (Apple Silicon or Intel) and Node 20+. Sign in to your own Claude Code and/or Codex on that computer.
 
 ```sh
 npx getbotons install
 ```
 
 1. Open the URL the installer prints.
-2. Approve the pairing code on the Linux box: `botons pair --approve <code>` (use `~/.local/bin/botons` if it is not on PATH yet).
+2. Approve the pairing code on the server: `botons pair --approve <code>` (use `~/.local/bin/botons` if it is not on PATH yet).
 3. Follow setup to create your first Boton.
 
 See [first-run setup](#first-run) and [installation options](#installing-from-a-branch-or-package) for more.
 
 ## Installing from a branch or package
 
-Install a release tarball on Linux x64 or arm64 (Node 20+ can launch the installer):
+Install a release tarball on Linux or macOS, x64 or arm64 (Node 20+ can launch the installer):
 
 ```sh
 npx -y file:/path/to/getbotons-<version>.tgz install
@@ -42,13 +42,41 @@ npm_config_cache="$(mktemp -d)" npx -y git+https://github.com/boundsj/botons.git
 
 If npm fails before the startup line, the installer has not run. The fresh cache directory can be removed after the command finishes. The CI probe compares plain and commit-qualified local Git URLs with Node 22.23.3's bundled npm; it does not exercise GitHub transport.
 
-The installer asks before changing the host, starting services, or installing missing packages with apt/dnf. It requires bubblewrap >=0.11 and runs as your ordinary user. It installs under `~/.local/share/botons`, stores Node under `node/<version>` and applications under `releases/<version>`, keeps data under `~/.botons`, and links `~/.local/bin/botons`. When that directory is missing from PATH, the installer checks the login profile and offers a marked shell configuration block only when needed. Reload the login shell (`exec $SHELL -l`) or open a new terminal; until then use `~/.local/bin/botons`. Uninstall removes only the block the installer added. `botons doctor`, `botons backup`, `botons restore` and `botons pair` use the service environment. Sign in to your agent CLI yourself, open the app, and approve its displayed code with `botons pair --approve <code>`.
+The installer asks before changing the host, starting services, or installing missing packages with apt/dnf. On Linux it requires bubblewrap >=0.11. It runs as your ordinary user. It installs under `~/.local/share/botons`, stores Node under `node/<version>` and applications under `releases/<version>`, keeps data under `~/.botons`, and links `~/.local/bin/botons`. When that directory is missing from PATH, the installer checks the login profile and offers a marked shell configuration block only when needed. Reload the login shell (`exec $SHELL -l`) or open a new terminal; until then use `~/.local/bin/botons`. Uninstall removes only the block the installer added. `botons doctor`, `botons backup`, `botons restore` and `botons pair` use the service environment. Sign in to your agent CLI yourself, open the app, and approve its displayed code with `botons pair --approve <code>`.
 
 `install`, `repair` and `upgrade` can be run again. Upgrade backs up an existing database first. Choose a new source explicitly with `botons upgrade --source /path/to/getbotons-<version>.tgz` (a source directory, HTTPS tarball or Git URL is also accepted; Git accepts `--ref`). The chosen source is saved for subsequent upgrades; an unpublished registry release is never assumed. Failed health checks switch the code back; a schema upgrade requires restoring the backup before old code can serve again. The installer never restores data automatically. Existing managed installs under the earlier product name are refused; follow the upgrade instructions below.
 
 Options: `--yes` consents to installation and package/service changes; `--dry-run` prints destinations without changing anything; `--home <data>` chooses the data folder; `--host <address>` chooses the bind address; `--public-url <https-url>` persists both `BOTONS_PUBLIC_URL` and `BOTONS_OAUTH_PUBLIC_URL` to the same HTTPS origin for the app and remote OAuth connector callbacks (also on repair, after consent); `--no-sudo` refuses missing system dependencies and prints any privileged linger fix instead of running sudo. Linger is checked first; an access-denied failure offers the exact sudo command after consent. Linger failure leaves the service enabled and running with a warning and recovery command. Linger is included in --yes; without it, linger asks separately. `--no-service` is for disposable test environments: it installs files without creating or starting services, timers or running doctor. Start it explicitly with `botons serve`. `uninstall` stops the service and removes managed program files while keeping data and configuration; `--purge` additionally deletes data only after a separate interactive confirmation, even with `--yes`.
 
 Maintainers generate the publishable package with `npm run release:package`, then `npm pack ./release-package`. The artifact version comes from the root `package.json`. Git sources use the package version plus the checked out SHA, so updating a branch produces a distinct release. For example, `botons upgrade --source git+https://github.com/boundsj/botons.git --ref main` saves that source for the next `botons upgrade`. `BOTONS_PACKAGE_NAME` overrides the default `getbotons` name. The generated package contains prebuilt web files, server source, and a production dependency lockfile. Publication is a separate owner action.
+
+## macOS
+
+The installer uses a per-user launchd LaunchAgent for the server and daily backups.
+It runs after you log in; it does not start before login or while the Mac sleeps.
+Use `botons start`, `botons stop`, `botons restart`, and `botons status` to manage it.
+LaunchAgents live in `~/Library/LaunchAgents`; logs are beside the environment
+file, under `~/.config/botons/logs`. Checkout installs use `service:install` and
+`backup:install`, which print their launchctl commands.
+
+Choose **Full computer access** for a Boton on macOS. Workspace access and local
+command MCP connectors require Linux bubblewrap and are refused on macOS; remote
+MCP connectors remain available. Full computer access runs as your user, so grant
+it only to Botons you trust. No weaker sandbox is substituted.
+
+Workspace file browsing, downloads and previews, uploads, saving browser
+screenshots, trash, Restore from trash, Clear inbox, installing skill packages,
+CLI file arguments (`--file` and `--payload @file`), and instruction-file rollback
+require Linux folder handles. They
+stay unavailable on macOS because Node cannot safely address entries in an open
+folder there while another process swaps its path. Backing up and restoring the
+server are separate operations and supported. A macOS backup with unreadable
+files fails, keeping its database snapshot and older backups; fix file permissions
+and try again.
+
+The managed browser finds Google Chrome or Chromium in `/Applications` or your
+Applications folder, as well as Playwright's browser. `BOTONS_BROWSER_PATH` can
+select another copy.
 
 ## Development
 
@@ -81,7 +109,7 @@ docker compose exec botons botons pair --approve <code>   # the code the web app
 
 ## Run it as a service
 
-The systemd user service runs a release folder built by `npm run deploy`, not your checkout:
+On Linux, the systemd user service runs a release folder built by `npm run deploy`, not your checkout:
 
 ```sh
 npm run deploy -- --no-restart                    # build the first release; ~/.local/share/botons/current points at it

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, rmdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, rmdirSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -32,7 +32,7 @@ after(async () => {
 
 /** A new temp folder, removed after the file's tests. */
 export function tempDir(prefix = 'botons-test-'): string {
-  const dir = mkdtempSync(join(tmpdir(), prefix));
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), prefix)));
   dirs.push(dir);
   return dir;
 }
@@ -269,9 +269,9 @@ export async function startServer(opts: ServerOptions = {}): Promise<TestServer 
     mock,
     call,
     // A blank Boton gets no connectors unless the test asks (a new Boton's own default, the browser, is browser-defaults.test.ts); one from a template gets the template's.
-    newBot: (name, over = {}) => created<Bot>('/api/bots', { name, provider: 'mock', ...(over.templateId === undefined && { connections: [] }), ...over }),
+    newBot: (name, over = {}) => created<Bot>('/api/bots', { name, provider: 'mock', ...(process.platform !== 'linux' && typeof over.provider === 'string' && over.provider !== 'mock' && over.templateId === undefined && { access: 'host' }), ...(over.templateId === undefined && { connections: [] }), ...over }),
     newRoutine: (botId, input = {}) => created<Routine>(`/api/bots/${botId}/routines`, { name: 'Job', instruction: 'Do the job', ...input }),
-    storeBot: (name, provider = 'mock', over = {}) => app.store.createBot({ name, provider, ...over }, app.providers.ids(), provider),
+    storeBot: (name, provider = 'mock', over = {}) => app.store.createBot({ name, provider, ...(process.platform !== 'linux' && provider !== 'mock' && { access: 'host' }), ...over }, app.providers.ids(), provider),
     send: (botId, text) => call<Message>('POST', `/api/bots/${botId}/messages`, { text }),
     chat: (botId, text) => {
       const sent = app.engine.sendMessage(botId, text);

@@ -5,6 +5,7 @@ import { accessSync, constants, existsSync, mkdirSync, readFileSync, statSync, w
 import { homedir } from 'node:os';
 import { delimiter, dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { serviceManager } from '../shared/service-manager.mjs';
 import { CONFIG_DIRS, UNITS, applyLegacyEnv } from '../shared/legacy-names.mjs';
 import { DEFAULT_DRAIN_MS, isBotonsSetting, parseDuration } from '../server/src/config.ts';
 
@@ -17,10 +18,11 @@ export function defaultEnvPath(): string {
   return existsSync(now) ? now : (CONFIG_DIRS.map((d) => join(configHome(), d, 'env')).find((p) => existsSync(p)) ?? now);
 }
 
-export const unitDirDefault = () => join(configHome(), 'systemd', 'user');
+export const unitDirDefault = () => serviceManager().dir;
 
 /** The server's unit: botons, or the deprecated unit an install still runs under until the upgrade moves it (server/src/legacy-upgrade.ts). */
 export function defaultUnitName(unitDir = unitDirDefault()): string {
+  if (process.platform === 'darwin') return 'botons';
   if (existsSync(join(unitDir, 'botons.service'))) return 'botons';
   return UNITS.find((u) => existsSync(join(unitDir, `${u.service}.service`)))?.service ?? 'botons';
 }
@@ -100,11 +102,38 @@ export interface ServiceUnitOptions {
   /** The user's home, for writing the default env file's path as %h (default: this user's). */
   userHome?: string;
   log?: (line: string) => void;
+  platform?: string;
+}
+
+const xml = (s: string) => s.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('\"', '&quot;').replaceAll("'", '&apos;');
+
+/** Property lists never interpolate a command line or evaluate the environment as shell code. */
+export function launchAgentPlist(o: { label: string; app: string; node: string; envPath: string; home: string; kind: 'server' | 'backup'; stopTimeoutSec?: number }): string {
+  const logs = join(dirname(o.envPath), 'logs');
+  mkdirSync(logs, { recursive: true, mode: 0o700 });
+  const args = [o.node, join(o.app, 'scripts/service-runner.ts'), o.app, o.envPath, o.kind];
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>Label</key><string>${xml(o.label)}</string>
+<key>ProgramArguments</key><array>${args.map((a) => `<string>${xml(a)}</string>`).join('')}</array>
+<key>WorkingDirectory</key><string>${xml(o.app)}</string>
+<key>EnvironmentVariables</key><dict><key>HOME</key><string>${xml(o.home)}</string></dict>
+<key>Umask</key><integer>63</integer>
+<key>StandardOutPath</key><string>${xml(join(logs, `${o.kind}.log`))}</string>
+<key>StandardErrorPath</key><string>${xml(join(logs, `${o.kind}.error.log`))}</string>
+${o.kind === 'server' ? `<key>RunAtLoad</key><true/>
+<key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
+<key>ThrottleInterval</key><integer>5</integer>
+<key>ExitTimeOut</key><integer>${o.stopTimeoutSec ?? 150}</integer>` : `<key>StartCalendarInterval</key><dict><key>Hour</key><integer>3</integer><key>Minute</key><integer>30</integer></dict>`}
+</dict></plist>
+`;
 }
 
 /** Writes the environment file if there is none, then the unit (both starting nothing). Returns the unit file's path. */
 export function writeServiceUnit(o: ServiceUnitOptions): string {
   const { name, app, envPath, unitDir } = o;
+  const platform = o.platform ?? process.platform;
   const log = o.log ?? ((line: string) => console.log(line));
   if (!/^[\w@.-]+$/.test(name)) throw new Error(`--name ${name}: use letters, digits and - _ . @ only`);
   // %h when it is the default file, which the backup unit reads too.
@@ -119,17 +148,17 @@ export function writeServiceUnit(o: ServiceUnitOptions): string {
     const codex = which(process.env.BOTONS_CODEX_BIN || 'codex', path);
     // node's and the CLIs' folders, the shell's PATH without what npm adds for scripts, then the system folders.
     const npmAdded = (d: string) => /[/\\]node_modules[/\\]|[/\\]node_modules$|node-gyp-bin/.test(d);
-    const dirs = [dirname(node), ...[claude, codex].flatMap((p) => (p ? [dirname(p)] : [])), ...path.split(delimiter).filter((d) => !npmAdded(d)), '/usr/local/bin', '/usr/bin', '/bin'];
+    const dirs = [dirname(node), ...[claude, codex].flatMap((p) => (p ? [dirname(p)] : [])), ...path.split(delimiter).filter((d) => !npmAdded(d)), ...(platform === 'darwin' ? ['/opt/homebrew/bin'] : []), '/usr/local/bin', '/usr/bin', '/bin'];
     const servicePath = [...new Set(dirs.filter((d) => d && isAbsolute(d)))].join(delimiter);
     const line = (k: string, v: string | null, what: string) => (v ? `${k}=${quoteEnv(v)}` : `# ${k}=/path/to/${what}   (not found on PATH when this file was written)`);
     mkdirSync(dirname(envPath), { recursive: true, mode: 0o700 });
     writeFileSync(
       envPath,
-      `# Environment for the Botons server (${name}.service) and its nightly backup.
+      `# Environment for the Botons server (${name}) and its nightly backup.
 # Written by \`npm run service:install\`; edit freely,
-# then: systemctl --user restart ${name}
+# then: ${platform === 'darwin' ? 'botons restart' : `systemctl --user restart ${name}`}
 #
-# systemd does not read your shell profile, so PATH must name every folder the
+# The service does not read your shell profile, so PATH must name every folder the
 # server and your Botons need: node, the claude and codex CLIs, and the tools
 # Botons run (git, gh, ...).
 PATH=${quoteEnv(servicePath)}
@@ -158,6 +187,14 @@ ${line('BOTONS_CODEX_BIN', codex, 'codex')}
   const stopTimeoutSec = Math.ceil((Number.isNaN(drainMs) ? DEFAULT_DRAIN_MS : drainMs) / 1000) + 30;
 
   mkdirSync(unitDir, { recursive: true });
+  if (platform === 'darwin') {
+    const home = o.userHome ?? homedir();
+    const manager = serviceManager({ platform, home, name });
+    const unitFile = join(unitDir, `${manager.label}.plist`);
+    writeFileSync(unitFile, launchAgentPlist({ label: manager.label, app, node, envPath, home, kind: 'server', stopTimeoutSec }), { mode: 0o600 });
+    log(`Wrote ${unitFile}`);
+    return unitFile;
+  }
   const unitFile = join(unitDir, `${name}.service`);
   const unit = readFileSync(join(repo, 'scripts', 'botons.service'), 'utf8')
     .replaceAll('@DESCRIPTION@', name === 'botons' ? 'Botons server' : `Botons server (${name})`)
@@ -181,6 +218,11 @@ function main() {
   const envPath = resolve(arg('--env-path') ?? defaultEnvPath());
   writeServiceUnit({ name, app, envPath, unitDir });
   if (process.argv.includes('--quiet')) return;
+  if (process.platform === 'darwin') {
+    const manager = serviceManager({ name });
+    console.log(`Start this per-user service after login:\n  launchctl bootstrap ${manager.domain} ${join(unitDir, `${manager.label}.plist`)}\n\nCheck it:\n  launchctl print ${manager.target}\n  Logs: ${join(dirname(envPath), 'logs')}\n\nRun this again after moving the app or changing Node or BOTONS_DRAIN_MS.`);
+    return;
+  }
   console.log(`  runs ${process.execPath} ${join(app, 'server/src/index.ts')}
 
 Start it now and at every boot (stop any other Botons server on the same data

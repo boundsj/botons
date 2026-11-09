@@ -169,20 +169,25 @@ test('`botons routine test <id> --payload` sends a test run, from text or @file 
   writeFileSync(secret, '{"key":"PRIVATE-KEY-MARKER"}');
   const outside = await cli('routine', 'test', routine.id, '--payload', `@${secret}`);
   assert.equal(outside.code, 1);
-  assert.match(outside.stderr, /--payload @file must be a file in your workspace/);
+  assert.match(outside.stderr, process.platform === 'linux' ? /--payload @file must be a file in your workspace/ : /--payload @file needs Linux/);
   assert.ok(!(await s.runsOf(routine.id)).length, 'no run');
   const fromFile = await cli('routine', 'test', routine.id, '--payload', `@${file}`, '--json');
-  assert.equal(fromFile.code, 0, fromFile.stderr);
-  const run = JSON.parse(fromFile.stdout) as RoutineRun;
-  assert.equal(run.trigger, 'test');
-  assert.equal(run.payloadPreview, '{"ref":"refs/heads/main"}\n');
-  await finished(routine.id, run.id);
+  if (process.platform !== 'linux') {
+    assert.equal(fromFile.code, 1);
+    assert.match(fromFile.stderr, /--payload @file needs Linux/);
+  } else {
+    assert.equal(fromFile.code, 0, fromFile.stderr);
+    const run = JSON.parse(fromFile.stdout) as RoutineRun;
+    assert.equal(run.trigger, 'test');
+    assert.equal(run.payloadPreview, '{"ref":"refs/heads/main"}\n');
+    await finished(routine.id, run.id);
+  }
   const inline = await cli('routine', 'test', routine.id, '--payload', '{"n":1}');
   assert.equal(inline.code, 0, inline.stderr);
   assert.match(inline.stdout, /Queued test run run_\w+ of "Job" with a 7-byte payload/);
   const missing = await cli('routine', 'test', routine.id, '--payload', `@${join(bot.workspace, 'nonexistent.json')}`);
   assert.equal(missing.code, 1);
-  assert.match(missing.stderr, /Can't read .*nonexistent\.json: ENOENT/);
+  assert.match(missing.stderr, process.platform === 'linux' ? /Can't read .*nonexistent\.json: ENOENT/ : /--payload @file needs Linux/);
   const manual = await cli('routine', 'run', routine.id, '--json');
   assert.equal((JSON.parse(manual.stdout) as RoutineRun).trigger, 'manual');
 });

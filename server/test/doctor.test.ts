@@ -97,7 +97,7 @@ test('exposure: auth off fails; every interface warns on a machine and is requir
 
   // In a container, a data folder that is not a volume is lost with it.
   const findings = await run({ BOTONS_HOST: '0.0.0.0' }, true);
-  assert.ok(of(findings, 'data').some((f) => f.status === 'fail' && /not a volume/.test(f.message)));
+  if (process.platform === 'linux') assert.ok(of(findings, 'data').some((f) => f.status === 'fail' && /not a volume/.test(f.message)));
 });
 
 test('npm run doctor: --json, exit 1 on a failure, and it reads the settings only from the environment it is given', () => {
@@ -374,7 +374,7 @@ test('CLI update notices point to Settings without exposing installation command
 test('doctor JSON remains a single document when the production sandbox is unavailable', () => {
   const home = tempDir();
   const result = spawnSync(process.execPath, [join(repo, 'scripts/doctor.ts'), '--json', '--skip-clis', '--skip-network'], {
-    env: { HOME: home, BOTONS_HOME: join(home, 'data'), BOTONS_PORT: '19873', BOTONS_NO_TAILSCALE: '1', PATH: join(home, 'no-programs') },
+    env: { HOME: home, BOTONS_HOME: join(home, 'data'), BOTONS_PORT: '19873', BOTONS_NO_TAILSCALE: '1', BOTONS_BROWSER_PATH: join(home, 'no-browser'), PATH: join(home, 'no-programs') },
     encoding: 'utf8', timeout: 10000,
   });
   assert.notEqual(result.status, 2, result.stderr);
@@ -383,7 +383,7 @@ test('doctor JSON remains a single document when the production sandbox is unava
   assert.equal(notices.length, 1, 'one summary even when multiple sandboxes are unavailable');
   assert.equal(notices[0].check, 'Workspace');
   assert.equal(notices[0].status, 'info');
-  assert.match(notices[0].message, /Claude, API tools/);
+  assert.match(notices[0].message, process.platform === 'darwin' ? /Claude, Codex, API tools/ : /Claude, API tools/);
   assert.ok(notices[0].message.length < 160);
   assert.equal(notices[0].fix, undefined);
   assert.ok(!result.stdout.includes('"level":"warn"'), 'diagnostic logs never precede the JSON document');

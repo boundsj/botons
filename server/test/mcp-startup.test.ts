@@ -198,7 +198,7 @@ test('a connector Claude Code has cached tools for starts pending: only a call t
   }
 });
 
-test('a local (stdio) connector gets its secret on both brains; one that fails to start is a notice on Claude Code', async () => {
+test('a local (stdio) connector gets its secret on both brains; one that fails to start is a notice on Claude Code', { skip: process.platform !== 'linux' && 'Requires the Linux Workspace sandbox and directory handles' }, async () => {
   const { s } = await setup();
   useTestCodexHome(s.cfg.home);
   const created = await s.call('POST', '/api/mcp-servers', {

@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import { mkdirSync, rmSync, truncateSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
+import { heldLookups } from '../src/held-dir.ts';
+const fileTest = (name: string, fn: () => Promise<void>) => test(name, { skip: !heldLookups && 'safe workspace file reads require Linux folder handles' }, fn);
 import type { AuthStatus, Bot, FilePreviewLink } from '../../shared/types.ts';
 import { PREVIEW_KEY_TTL_MS } from '../src/auth.ts';
 import { PREVIEW_MAX_BYTES } from '../../shared/files.ts';
@@ -32,7 +34,7 @@ const withParam = (url: string, name: string, value: string) => {
   return u.pathname + u.search;
 };
 
-test("an HTML file's preview page runs in a sandbox with an opaque origin, no network and no forms", async () => {
+fileTest("an HTML file's preview page runs in a sandbox with an opaque origin, no network and no forms", async () => {
   const bot = await newBot('Kevin');
   put(bot, 'design/avatar directions.html', PAGE);
   const { status, data: link } = await mint(bot, 'design/avatar directions.html');
@@ -71,7 +73,7 @@ test("an HTML file's preview page runs in a sandbox with an opaque origin, no ne
   }
 });
 
-test("a preview key opens only its own Boton's file at its own path, only until it expires, and only while its device is paired", async () => {
+fileTest("a preview key opens only its own Boton's file at its own path, only until it expires, and only while its device is paired", async () => {
   const bot = await newBot('Stuart');
   const other = await newBot('Bob');
   put(bot, 'a.html', PAGE);
@@ -117,7 +119,7 @@ test("a preview key opens only its own Boton's file at its own path, only until 
   await refused(phoneLink.url, 'a revoked device');
 });
 
-test('only a paired device gets a preview link, and only for an HTML file inside the workspace', async () => {
+fileTest('only a paired device gets a preview link, and only for an HTML file inside the workspace', async () => {
   const bot = await newBot('Dave');
   put(bot, 'page.htm', PAGE);
   put(bot, 'notes.txt', 'notes');
@@ -175,7 +177,7 @@ test('the preview error page runs only its own script, in a sandbox, and holds n
   assert.ok(!body.includes(filesKey) && !body.includes(device), 'never a device key or token');
 });
 
-test('the link is refused for a file over the limit by its size now, whatever the listing said', async () => {
+fileTest('the link is refused for a file over the limit by its size now, whatever the listing said', async () => {
   const bot = await newBot('Bob');
   put(bot, 'big.html', '<p>small at first</p>');
   const listed = await call<{ entries: { name: string; size: number }[] }>('GET', `/api/bots/${bot.id}/files`);
@@ -193,7 +195,7 @@ test('the link is refused for a file over the limit by its size now, whatever th
   assert.equal(ok.data.size, PREVIEW_MAX_BYTES);
 });
 
-test("a file deleted, grown or swapped after its link was made gets the error page, not the file or the server's JSON", async () => {
+fileTest("a file deleted, grown or swapped after its link was made gets the error page, not the file or the server's JSON", async () => {
   const bot = await newBot('Dave');
   put(bot, 'gone.html', PAGE);
   put(bot, 'grows.html', PAGE);
@@ -217,7 +219,7 @@ test("a file deleted, grown or swapped after its link was made gets the error pa
   await back.text();
 });
 
-test('the raw endpoint never serves HTML as a page; SVG shows inline with no script', async () => {
+fileTest('the raw endpoint never serves HTML as a page; SVG shows inline with no script', async () => {
   const bot = await newBot('Kevin');
   put(bot, 'page.html', PAGE);
   put(bot, 'logo.svg', '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>');
@@ -239,7 +241,7 @@ test('the raw endpoint never serves HTML as a page; SVG shows inline with no scr
   await svg.text();
 });
 
-test('with BOTONS_AUTH=off the preview link needs no key, and still gets the sandbox', async () => {
+fileTest('with BOTONS_AUTH=off the preview link needs no key, and still gets the sandbox', async () => {
   const off = await startServer({ env: { BOTONS_AUTH: 'off' }, token: null });
   const bot = await off.newBot('Stuart');
   put(bot, 'a.html', PAGE);

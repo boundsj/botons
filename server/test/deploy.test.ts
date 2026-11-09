@@ -40,7 +40,7 @@ type Call = { cmd: string; args: string[]; cwd?: string };
 
 function options(root: string, calls: Call[] = [], logs: string[] = [], extra: Partial<DeployOptions> = {}): DeployOptions {
   return {
-    repo, root, unit: 'botons-test', port, keep: 5, restart: true, skipTests: false, healthTimeoutMs: 1500, settleMs: 50,
+    platform: 'linux', repo, root, unit: 'botons-test', port, keep: 5, restart: true, skipTests: false, healthTimeoutMs: 1500, settleMs: 50,
     log: (l) => logs.push(l),
     async exec(cmd, args, opts) {
       calls.push({ cmd: basename(cmd), args, cwd: opts?.cwd });
@@ -147,4 +147,33 @@ test('the health check counts a server failing only on its agent CLIs as up, wit
   } finally {
     answer = null;
   }
+});
+
+test('a macOS deploy reloads its own LaunchAgent and restores the working release when health fails', async () => {
+  const { serviceManager } = await import('../../shared/service-manager.mjs');
+  const root = tmp();
+  const userHome = tmp();
+  const m = serviceManager({ platform: 'darwin', home: userHome, name: 'botons-test' });
+  const actions: string[] = [];
+  let loaded = true;
+  const opts = options(root, [], [], {
+    platform: 'darwin', userHome,
+    serviceExec: (_cmd, args) => {
+      actions.push(args[0]);
+      if (args[0] === 'print') return loaded ? { status: 0, stdout: `path = ${m.serviceFile}\n`, stderr: '' } : { status: 113, stdout: '', stderr: 'Could not find service' };
+      if (args[0] === 'bootout') loaded = false;
+      if (args[0] === 'bootstrap') {
+        loaded = true;
+        assert.equal(args[2], m.serviceFile);
+        const current = join(root, 'current');
+        serving = existsSync(join(current, 'BROKEN')) ? 'broken' : JSON.parse(readFileSync(join(current, 'release.json'), 'utf8')).sha;
+      }
+      return { status: 0, stdout: '', stderr: '' };
+    },
+  });
+  assert.equal(await deploy(A, opts), true);
+  assert.equal(await deploy(C, opts), false);
+  assert.equal(linked(root, 'current'), A);
+  assert.equal(serving, A);
+  assert.deepEqual(actions, ['print', 'bootout', 'print', 'bootstrap', 'print', 'bootout', 'print', 'bootstrap', 'print', 'bootout', 'print', 'bootstrap']);
 });

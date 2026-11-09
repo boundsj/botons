@@ -257,7 +257,7 @@ export class CliChecker {
 
 /** Claude needs socat and private network/process namespaces. No model or login is used. */
 export function claudeWorkspaceProblem({ bwrap = 'bwrap', socat = 'socat' }: { bwrap?: string; socat?: string } = {}): string | null {
-  if (process.platform !== 'linux') return null;
+  if (process.platform !== 'linux') return `Not available on this server: the Workspace sandbox needs Linux. On ${process.platform === 'darwin' ? 'macOS' : process.platform}, choose Full computer access for a Boton you trust.`;
   const relay = spawnSync(socat, ['-V'], { timeout: CHECK_TIMEOUT_MS, encoding: 'utf8' });
   if (relay.status !== 0) return 'Not available on this server: the Workspace sandbox needs socat installed and runnable.';
   const probe = spawnSync(bwrap, ['--ro-bind', '/', '/', '--dev', '/dev', '--unshare-net', '--unshare-pid', '--proc', '/proc', '--', '/bin/true'], { timeout: CHECK_TIMEOUT_MS, encoding: 'utf8' });

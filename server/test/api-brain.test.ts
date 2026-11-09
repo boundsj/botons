@@ -131,7 +131,7 @@ for (const brain of BRAINS) {
 
   test(`${brain.provider}: asked in chat, it creates a routine with the Boton CLI; the schedule and the webhook run it`, async () => {
     const s = await server();
-    const bot = await s.newBot('Bob', { provider: brain.provider, model: brain.model });
+    const bot = await s.newBot('Bob', { provider: brain.provider, model: brain.model, access: 'workspace' });
     if (sandboxProblem()) {
       // Workspace access with no sandbox: nothing runs, and the turn says why.
       fake.queue({ text: 'unused' });
@@ -139,7 +139,7 @@ for (const brain of BRAINS) {
       assert.equal(m.role, 'error');
       assert.match(m.text, /bubblewrap|sandbox/);
       assert.equal(fake.requests.length, 0);
-      if (process.env.CI) assert.fail(`the sandbox is required in CI: ${sandboxProblem()}`);
+      if (process.env.CI && process.platform === 'linux') assert.fail(`the sandbox is required in CI: ${sandboxProblem()}`);
       return;
     }
     fake.queue(
@@ -176,7 +176,7 @@ for (const brain of BRAINS) {
 test('Workspace access: the sandbox keeps the Boton in its workspace, off the network and away from secrets; Full access is the owner’s choice', async (t) => {
   const problem = sandboxProblem();
   if (problem) {
-    if (process.env.CI) assert.fail(`the sandbox is required in CI: ${problem}`);
+    if (process.env.CI && process.platform === 'linux') assert.fail(`the sandbox is required in CI: ${problem}`);
     t.skip(problem);
     return;
   }
@@ -252,10 +252,10 @@ test('Workspace access without a sandbox: nothing runs and the turn says why; Fu
   useSandboxBinary(join(tempDir(), 'no-bwrap'));
   try {
     const s = await server();
-    const bot = await s.newBot('Tim', { provider: 'openai-api', model: 'gpt-6.1-sol' });
+    const bot = await s.newBot('Tim', { provider: 'openai-api', model: 'gpt-6.1-sol', access: 'workspace' });
     const m = await reply(s, bot, 'Hello');
     assert.equal(m.role, 'error');
-    assert.match(m.text, /bubblewrap \(bwrap\) is not installed/);
+    assert.match(m.text, process.platform === 'linux' ? /bubblewrap \(bwrap\) is not installed/ : /bubblewrap on Linux/);
     assert.equal(fake.requests.length, 0, 'nothing was sent');
     await s.call('PATCH', `/api/bots/${bot.id}`, { access: 'host' });
     fake.queue({ text: 'Hi with full access.' });

@@ -151,7 +151,10 @@ export async function resolveInWorkspace(workspace: string, input: unknown): Pro
  * Open a resolved file and check that what was opened is still inside: a Boton could swap a folder on
  * the way for a symlink after the check. Non-blocking, so a FIFO swapped in can't hold a server thread.
  */
+export const NO_SAFE_FILE_READS = "Browsing and downloading workspace files needs Linux directory handles to prevent folder swaps. Use a Boton's own tools on this system.";
+
 async function openInside(root: string, abs: string): Promise<FileHandle> {
+  if (!heldLookups) throw new HttpError(501, NO_SAFE_FILE_READS);
   let fh: FileHandle;
   try {
     fh = await open(abs, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0));
@@ -175,6 +178,7 @@ async function openInside(root: string, abs: string): Promise<FileHandle> {
 }
 
 export async function listFolder(workspace: string, path: string): Promise<FileListing> {
+  if (!heldLookups) throw new HttpError(501, NO_SAFE_FILE_READS);
   const { root, abs, rel, stat: st } = await resolveInWorkspace(workspace, path || '.');
   if (!st.isDirectory()) throw new HttpError(400, 'That is a file, not a folder');
   let names: string[];
@@ -380,7 +384,7 @@ export function usePlaceLink(fn: ((from: string, to: string) => Promise<void>) |
  * a folder looked up again by its path is what such a swap redirects.
  */
 function holdFolder(root: string, name: string): { path: string; close: () => void } {
-  if (!heldLookups) throw new HttpError(501, `Botons writes into a workspace only through a folder it holds open (Linux /proc/self/fd), which this system doesn't have; nothing was saved in ${name}/`);
+  if (!heldLookups) throw new HttpError(501, `Saving files here needs Linux, where Botons can safely use folders it holds open. Nothing was saved in ${name}/`);
   const top = holdDir(root);
   try {
     const dir = holdBeneath(top, [name]);

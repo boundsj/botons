@@ -31,7 +31,7 @@ else if (process.argv.includes('model_provider="preflight"')) {
   return { root, cli, executed, probe };
 }
 
-test('session initialization probe catches proc failure even when standalone sandbox succeeds', async () => {
+test('session initialization probe catches proc failure even when standalone sandbox succeeds', { skip: process.platform !== 'linux' && 'Exercises the Linux Codex sandbox helper' }, async () => {
   const f = refused();
   assert.match((await probeCodexWorkspace(f.cli.bin))!, /it hides part of \/proc/);
   const probe = JSON.parse(readFileSync(f.probe, 'utf8'));

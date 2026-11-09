@@ -298,7 +298,7 @@ test('GET /api/logs: what the server logs arrives as events with checked fields;
   }
   let r = await s.call<RecentLogsAnswer>('GET', '/api/logs?level=warn&limit=200');
   assert.equal(r.status, 200, r.text);
-  const known = r.data.entries.filter((e) => e.event !== 'unclassified');
+  const known = r.data.entries.filter((e) => e.event !== 'unclassified' && e.event !== 'trash.no_handles');
   assert.deepEqual(known.map((e) => e.event), ['jobs.failed', 'oauth.refresh_refused']);
   assert.deepEqual(known[0].fields, { botId: kevin.id, errorCategory: 'permission' });
   assert.deepEqual(known[1].fields, { connectionId: 'oac_kevin001' });

@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { Readable } from 'node:stream';
 import { test } from 'node:test';
 import { readWorkspaceFile, WorkspaceFileError } from '../src/cli/workspace-file.ts';
-import { holdDir, NoHeldLookups, under, useHeldLookups } from '../src/held-dir.ts';
+import { heldLookups, holdDir, NoHeldLookups, under, useHeldLookups } from '../src/held-dir.ts';
 import { snapshotInstructions } from '../src/instructions.ts';
 import { NO_LINKS, receiveUpload, saveNewFile, usePlaceLink } from '../src/files.ts';
 import { HttpError } from '../src/store.ts';
@@ -17,7 +17,7 @@ import { tempDir } from './helpers.ts';
  * to the file can change between any two of the reader's own steps. Here they change at every one: before and after
  * each realpath, open and stat, `sub` flips between the real folder and a link to a private one.
  */
-test('readWorkspaceFile reads only through the folders it checked, however they change around each step', () => {
+test('readWorkspaceFile reads only through the folders it checked, however they change around each step', { skip: process.platform !== 'linux' && 'Requires Linux directory handles for confined file operations' }, () => {
   const root = tempDir('botons-wsfile-race-');
   const ws = join(root, 'ws');
   const priv = join(root, 'private');
@@ -79,7 +79,7 @@ test('readWorkspaceFile reads only through the folders it checked, however they 
  * An upload is linked into the inbox, then its temp file removed; if the Boton swaps the inbox for a link to a folder of
  * the owner's right then, a check of the placed file by path would find (and remove) the owner's file of that name.
  */
-test('an upload is placed in the inbox it was written to, and nothing outside is touched when the inbox is swapped', async () => {
+test('an upload is placed in the inbox it was written to, and nothing outside is touched when the inbox is swapped', { skip: process.platform !== 'linux' && 'Requires Linux directory handles for confined file operations' }, async () => {
   const root = tempDir('botons-upload-swap-');
   const ws = join(root, 'ws');
   const outside = join(root, 'owner-folder');
@@ -143,6 +143,7 @@ test('without lookups in an open folder, reading a workspace file, a held lookup
   };
   const names = ['realpathSync', 'openSync', 'statSync', 'lstatSync'] as const;
   const saved = Object.fromEntries(names.map((n) => [n, fs[n]]));
+  const originalLookups = heldLookups;
   let opened = 0;
   useHeldLookups(false);
   try {
@@ -185,9 +186,9 @@ test('without lookups in an open folder, reading a workspace file, a held lookup
     }
     await assert.rejects(snapshotInstructions(ws), NoHeldLookups);
   } finally {
-    useHeldLookups(true);
+    useHeldLookups(originalLookups);
   }
-  assert.equal(readWorkspaceFile(join(ws, 'sub', 'notes.md'), ws), 'inside');
+  if (originalLookups) assert.equal(readWorkspaceFile(join(ws, 'sub', 'notes.md'), ws), 'inside');
 });
 
 const upload = (body: string) => Object.assign(Readable.from([Buffer.from(body)]), { headers: { 'content-type': 'application/octet-stream' }, complete: true });
@@ -196,12 +197,13 @@ test('without lookups in an open folder, an upload and a saved file refuse befor
   const ws = join(tempDir('botons-upload-nolookups-'), 'ws');
   mkdirSync(join(ws, 'inbox'), { recursive: true });
   mkdirSync(join(ws, 'shots'));
+  const originalLookups = heldLookups;
   useHeldLookups(false);
   try {
     await assert.rejects(receiveUpload(upload('uploaded') as never, ws, 'notes.txt', 'UTC'), (e: Error) => e instanceof HttpError && e.status === 501);
     await assert.rejects(saveNewFile(ws, 'shots', 'x', 'page.png', Buffer.from('png')), (e: Error) => e instanceof HttpError && e.status === 501);
   } finally {
-    useHeldLookups(true);
+    useHeldLookups(originalLookups);
   }
   assert.deepEqual(readdirSync(join(ws, 'inbox')), []);
   assert.deepEqual(readdirSync(join(ws, 'shots')), []);
@@ -212,7 +214,7 @@ test('without lookups in an open folder, an upload and a saved file refuse befor
  * between any check and the step. A link() there fails, and the next name is taken; on a filesystem without hard
  * links nothing is put in place at all (a check, then rename(), would replace what the racer put there).
  */
-test("placing a file never replaces one a racer put at its name, and a filesystem without hard links saves nothing", async () => {
+test("placing a file never replaces one a racer put at its name, and a filesystem without hard links saves nothing", { skip: process.platform !== 'linux' && 'Requires Linux directory handles for confined file operations' }, async () => {
   const ws = join(tempDir('botons-place-race-'), 'ws');
   mkdirSync(join(ws, 'shots'), { recursive: true });
   // The racer: a file of the owner's, linked in at the first name just before the server's step.
@@ -239,7 +241,7 @@ test("placing a file never replaces one a racer put at its name, and a filesyste
   assert.deepEqual(readdirSync(join(ws, 'inbox')), []);
 });
 
-test('upload cleanup stays in the held inbox when its pathname becomes an outside symlink', async () => {
+test('upload cleanup stays in the held inbox when its pathname becomes an outside symlink', { skip: process.platform !== 'linux' && 'Requires Linux directory handles for confined file operations' }, async () => {
   const root = tempDir('botons-upload-sweep-');
   const ws = join(root, 'ws');
   const inbox = join(ws, 'inbox');

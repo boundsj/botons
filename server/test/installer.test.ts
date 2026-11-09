@@ -1,8 +1,9 @@
 import { test } from 'node:test';
+import { serviceManager } from '../../shared/service-manager.mjs';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 // The bootstrap must remain JavaScript so npm can launch it before Node 24 exists.
-const { parse, verified, publicSettings, packageCommands } = await import('../../installer/botons.mjs');
+const { parse, verified, publicSettings, packageCommands, nodeArchive } = await import('../../installer/botons.mjs');
 test('installer rejects incomplete and unknown options', () => {
   for (const args of [['--home'], ['--wat'], ['destroy'], ['--host', 'a\nb']]) assert.throws(() => parse(args));
   assert.deepEqual(parse(['install', '--yes', '--no-service', '--home', '/tmp/botons']), { command: 'install', yes: true, 'no-service': true, home: '/tmp/botons' });
@@ -46,8 +47,9 @@ test('installed service and admin scripts execute through a current symlink', ()
     const install = spawnSync(process.execPath, [realpathSync(join(current, 'scripts/install-service.ts')),
       '--app', current, '--dir', unitDir, '--env-path', join(home, 'env')], { env, encoding: 'utf8' });
     assert.equal(install.status, 0, install.stderr);
-    const unit = readFileSync(join(unitDir, 'botons.service'), 'utf8');
-    assert.ok(unit.includes('ExecStart='));
+    const name = process.platform === 'darwin' ? serviceManager({ home }).label + '.plist' : 'botons.service';
+    const unit = readFileSync(join(unitDir, name), 'utf8');
+    assert.ok(unit.includes(process.platform === 'darwin' ? 'ProgramArguments' : 'ExecStart='));
     assert.ok(unit.includes(current));
     const doctor = spawnSync(process.execPath, [join(current, 'installer/admin.mjs'),
       join(current, 'scripts/doctor.ts'), '--skip-clis', '--skip-network'], { env, encoding: 'utf8' });
@@ -71,7 +73,7 @@ test('dependency remediation lists complete commands and refuses unknown distrib
 import { writeFileSync, existsSync, realpathSync } from 'node:fs';
 
 function installerFixture() {
-  const home = mkdtempSync(join(tmpdir(), 'botons-installer-behavior-'));
+  const home = realpathSync(mkdtempSync(join(tmpdir(), 'botons-installer-behavior-')));
   const root = join(home, '.local/share/botons');
   const bin = join(home, 'fake-bin');
   mkdirSync(bin, { recursive: true });
@@ -79,6 +81,17 @@ function installerFixture() {
   mkdirSync(join(home, 'runtime/bin'), { recursive: true });
   writeFileSync(runtime, `#!/bin/sh\ncase "$1" in\n*/npm-cli.js) mkdir -p node_modules/croner; echo repaired > node_modules/croner/package.json; test ! -f "$HOME/fail-build"; exit $?;;\nesac\nexec '${process.execPath}' "$@"\n`, { mode: 0o755 });
   for (const name of ['systemctl', 'loginctl']) writeFileSync(join(bin, name), '#!/bin/sh\necho "$@" >> "$HOME/service-calls"\n', { mode: 0o755 });
+  const manager = serviceManager({ home, configHome: join(home, '.config') });
+  const quote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'";
+  writeFileSync(join(bin, 'launchctl'), `#!/bin/sh
+printf '%s\\n' "$*" >> "$HOME/service-calls"
+case "$1:$2" in
+  print:gui/*/*) case "$2" in *.backup) file=${quote(manager.backupFile)};; *) file=${quote(manager.serviceFile)};; esac
+    if [ -f "$file" ] && [ ! -f "$HOME/stopped-\${2##*/}" ]; then printf 'path = %s\\n' "$file"; else echo 'Could not find service' >&2; exit 113; fi;;
+  bootout:*) touch "$HOME/stopped-\${2##*/}";;
+  bootstrap:*) name=\${3##*/}; rm -f "$HOME/stopped-\${name%.plist}";;
+esac
+`, { mode: 0o755 });
   // Lifecycle fixtures probe tools but do not run a Workspace command.
   writeFileSync(join(bin, 'socat'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
   writeFileSync(join(bin, 'bwrap'), '#!/bin/sh\necho "bubblewrap 0.11.0"\n', { mode: 0o755 });
@@ -162,9 +175,9 @@ test('health failure restores config, units and link and probes the saved port',
     assert.equal(f.invoke(['install', '--source', f.artifact('3.0.0')]).status, 0);
     requireFs.appendFileSync(f.config, `BOTONS_PORT="${port}"\n`);
     const config = readFileSync(f.config, 'utf8');
-    const units = join(f.home, '.config/systemd/user');
-    mkdirSync(units, { recursive: true });
-    for (const name of ['botons.service', 'botons-backup.service', 'botons-backup.timer']) writeFileSync(join(units, name), `saved ${name}`);
+    const manager = serviceManager({ home: f.home, configHome: join(f.home, '.config') });
+    mkdirSync(manager.dir, { recursive: true });
+    for (const path of manager.files) writeFileSync(path, `saved ${path}`);
     const source = f.artifact('3.0.1');
     const child = (await import('node:child_process')).spawn(process.execPath, [resolve('installer/botons.mjs'), 'upgrade', '--source', source, '--yes', '--no-sudo', '--host', 'localhost', '--public-url', 'https://other.example.com'], { env: f.env });
     let output = '';
@@ -176,7 +189,7 @@ test('health failure restores config, units and link and probes the saved port',
     assert.equal(probes, 31);
     assert.equal(readFileSync(f.config, 'utf8'), config);
     assert.equal(realpathSync(join(f.root, 'current')), join(f.root, 'releases/3.0.0'));
-    for (const name of ['botons.service', 'botons-backup.service', 'botons-backup.timer']) assert.equal(readFileSync(join(units, name), 'utf8'), `saved ${name}`);
+    for (const path of manager.files) assert.equal(readFileSync(path, 'utf8'), `saved ${path}`);
     assert.equal(existsSync(join(f.root, 'releases/3.0.1')), false);
   } finally { server.close(); f.cleanup(); }
 });
@@ -193,7 +206,7 @@ test('first activation failure removes units, disables services and permits retr
     assert.equal(existsSync(join(f.root, 'current')), false);
     assert.equal(existsSync(f.config), false);
     assert.equal(existsSync(join(f.root, 'releases/4.0.0')), false);
-    assert.match(readFileSync(join(f.home, 'service-calls'), 'utf8'), /disable --now botons botons-backup.timer/);
+    assert.match(readFileSync(join(f.home, 'service-calls'), 'utf8'), process.platform === 'darwin' ? /print gui\// : /disable --now botons botons-backup.timer/);
     writeFileSync(index, contents);
     const retry = f.invoke(['install', '--source', source]);
     assert.equal(retry.status, 0, retry.stderr);
@@ -243,7 +256,7 @@ const { dependencyProblems } = await import('../../installer/botons.mjs');
 test('requirements detect absent socat and xz even with supported bubblewrap', () => {
   assert.deepEqual(dependencyProblems((cmd) => cmd === 'bwrap'
     ? { status: 0, stdout: 'bubblewrap 0.11.0' }
-    : { status: ['socat', 'xz'].includes(cmd) ? 127 : 0 }), ['socat', 'xz']);
+    : { status: ['socat', 'xz'].includes(cmd) ? 127 : 0 }, 'linux'), ['socat', 'xz']);
 });
 
 test('packed source identity changes for web, scripts and dependency manifests', () => {
@@ -261,7 +274,7 @@ test('packed source identity changes for web, scripts and dependency manifests',
   } finally { rmSync(home, { recursive: true, force: true }); }
 });
 
-test('rollback restart failure preserves activation context and removes release for retry', () => {
+test('rollback restart failure preserves activation context and removes release for retry', { skip: process.platform !== 'linux' && 'Exercises Linux systemd and linger failures' }, () => {
   const f = installerFixture();
   try {
     assert.equal(f.invoke(['install', '--source', f.artifact('6.0.0')]).status, 0);
@@ -279,7 +292,7 @@ test('rollback restart failure preserves activation context and removes release 
   } finally { f.cleanup(); }
 });
 
-test('rollback daemon reload failure preserves activation context and removes release for retry', () => {
+test('rollback daemon reload failure preserves activation context and removes release for retry', { skip: process.platform !== 'linux' && 'Exercises Linux systemd and linger failures' }, () => {
   const f = installerFixture();
   try {
     assert.equal(f.invoke(['install', '--source', f.artifact('7.0.0')]).status, 0);
@@ -298,7 +311,7 @@ test('rollback daemon reload failure preserves activation context and removes re
   } finally { f.cleanup(); }
 });
 
-test('linger access denial leaves the installed service enabled and running', async () => {
+test('linger access denial leaves the installed service enabled and running', { skip: process.platform !== 'linux' && 'Exercises Linux systemd and linger failures' }, async () => {
   const f = installerFixture();
   const port = await freePort();
   const server = createServer((_req, res) => { res.setHeader('Content-Type', 'application/json'); res.end('{}'); });
@@ -370,10 +383,29 @@ test('managed install backs up before doctor and prints ordered public next step
 test('purge uninstall finishes daemon reload before removing its log directory', () => {
   const f = installerFixture();
   try {
+    const logs = join(f.home, '.config/botons/logs');
+    if (process.platform === 'darwin') {
+      mkdirSync(logs, { recursive: true });
+      for (const name of ['server.log', 'server.error.log', 'backup.log', 'backup.error.log', 'keep.txt']) writeFileSync(join(logs, name), 'fixture');
+    }
     const result = f.invoke(['uninstall', '--purge'], true);
     assert.equal(result.status, 0, result.stderr);
-    assert.match(readFileSync(join(f.home, 'service-calls'), 'utf8'), /daemon-reload/);
+    assert.match(readFileSync(join(f.home, 'service-calls'), 'utf8'), process.platform === 'darwin' ? /print gui\// : /daemon-reload/);
     assert.equal(existsSync(f.root), false);
+    if (process.platform === 'darwin') assert.deepEqual(requireFs.readdirSync(logs), ['keep.txt']);
     assert.match(result.stdout, /Botons uninstalled/);
   } finally { f.cleanup(); }
+});
+
+test('Node archives match Linux and macOS CPUs without requiring xz on macOS', () => {
+  for (const cpu of ['arm64', 'x64']) {
+    assert.deepEqual(nodeArchive('v24.0.0', 'darwin', cpu), { filename: `node-v24.0.0-darwin-${cpu}.tar.gz`, extract: '-xzf' });
+    assert.deepEqual(nodeArchive('v24.0.0', 'linux', cpu), { filename: `node-v24.0.0-linux-${cpu}.tar.xz`, extract: '-xJf' });
+  }
+  assert.throws(() => nodeArchive('v24.0.0', 'win32', 'x64'), /Linux or macOS/);
+  assert.throws(() => nodeArchive('v24.0.0', 'darwin', 'ia32'), /Linux or macOS/);
+  const probes: string[] = [];
+  assert.deepEqual(dependencyProblems((cmd) => { probes.push(cmd); return { status: 0 }; }, 'darwin'), []);
+  assert.deepEqual(probes, ['tar']);
+  for (const command of ['start', 'stop', 'status', 'restart']) assert.equal(parse([command]).command, command);
 });

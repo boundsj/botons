@@ -20,6 +20,7 @@ import { failureOf, findBrowser } from '../src/browser.ts';
 import { tapLogs } from '../src/log.ts';
 import { applyPolicy, covers, effectiveSites, judgeRequest, NO_BROWSER, parseSite, siteFor } from '../src/browser-policy.ts';
 import { type ProxyPolicy, startBrowserProxy } from '../src/browser-proxy.ts';
+import { heldLookups } from '../src/held-dir.ts';
 import { saveNewFile } from '../src/files.ts';
 import { privatePaths } from '../src/isolation.ts';
 import { codexMcp } from '../src/providers/codex-cli.ts';
@@ -91,7 +92,7 @@ test("Codex gets the browser server's token from its environment, never on its c
   assert.deepEqual(env, {});
 });
 
-test("a file the server saves into a workspace follows no link the Boton planted: a linked folder is refused, nothing is written outside", async () => {
+test("a file the server saves into a workspace follows no link the Boton planted: a linked folder is refused, nothing is written outside", { skip: !heldLookups && 'safe workspace writes require Linux folder handles' }, async () => {
   const ws = tempDir('botons-ws-');
   const outside = tempDir('botons-outside-');
   const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
@@ -486,10 +487,15 @@ test('a read-only task: a page opened, read, a link followed, back, a screenshot
     assert.match((await turn.act({ action: 'read' })).content!.text, /Customer 7 renewed/);
     assert.equal((await turn.act({ action: 'back' })).page!.title, 'Report');
     const shot = await turn.act({ action: 'screenshot' });
+    if (heldLookups) {
     assert.equal(shot.outcome, 'done', shot.message);
     assert.match(shot.file!.path, /^browser-screenshots\/.*-page\.png$/);
     assert.equal(readFileSync(join(kevin.workspace, shot.file!.path)).subarray(1, 4).toString(), 'PNG');
     assert.ok((await s.messagesOf(kevin.id)).some((m) => m.meta?.kind === 'file.shared' && m.meta.file?.path === shot.file!.path));
+    } else {
+      assert.equal(shot.outcome, 'refused', shot.message);
+      assert.match(shot.message, /Linux/);
+    }
     // Off the list: refused before anything loads.
     assert.equal((await turn.act({ action: 'open', url: `${f.evilUrl}/x` })).outcome, 'refused');
     assert.equal((await status(s, kevin.id)).running, true);
@@ -610,7 +616,7 @@ test("taking the connector away, Stop, and deleting the Boton close its browser 
     const before = readdirSync(s.home).sort();
     const shot = await turn.act({ action: 'screenshot' });
     assert.equal(shot.outcome, 'refused');
-    assert.match(shot.message, /not a folder/);
+    assert.match(shot.message, heldLookups ? /not a folder/ : /Linux|not a folder/);
     assert.deepEqual(readdirSync(s.home).sort(), before);
     unlinkSync(join(kevin.workspace, 'browser-screenshots'));
     // Unchecked in its settings: closed mid-turn, and its steps are refused.
@@ -717,7 +723,7 @@ for (const provider of ['claude-cli', 'codex-cli'] as const) {
           ['browser_read', false],
           ['browser_open', false],
           ['browser_read', false],
-          ['browser_screenshot', false],
+          ['browser_screenshot', !heldLookups],
         ],
         JSON.stringify(results, null, 1),
       );
@@ -740,6 +746,11 @@ for (const provider of ['claude-cli', 'codex-cli'] as const) {
         const r = s.app.store.findRun(run.id);
         return r && r.status !== 'queued' && r.status !== 'running' && s.app.engine.statusOf(kevin.id).state === 'idle';
       }, 30_000);
+      if (process.platform !== 'linux') {
+        assert.equal(s.app.store.findRun(run.id)?.status, 'failed');
+        assert.equal(cli.calls().length, 0, 'webhook Workspace confinement is unavailable');
+        return;
+      }
       const hooked = cli.calls().at(-1)!;
       assert.ok(!JSON.stringify(hooked.argv).includes(BROWSER_SERVER), hooked.argv.join(' '));
       assert.ok(!hooked.stdin.includes('Your browser:'));

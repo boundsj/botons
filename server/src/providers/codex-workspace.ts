@@ -13,7 +13,7 @@ export function workspaceFailure(stderr: string): string {
 
 /** Offline real helper probe: no model, login, owner config or owner workspace is used. */
 export async function probeCodexWorkspace(bin: string, timeoutMs = 10000): Promise<string | null> {
-  if (process.platform !== 'linux') return null;
+  if (process.platform !== 'linux') return `Not available on this server: the Workspace sandbox needs Linux. On ${process.platform === 'darwin' ? 'macOS' : process.platform}, choose Full computer access for a Boton you trust.`;
   const root = mkdtempSync(join(tmpdir(), 'botons-codex-workspace-'));
   const home = join(root, 'home');
   const cwd = join(root, 'workspace');

@@ -276,7 +276,7 @@ test("a Boton sees a callback URL only as its origin; a sandboxed run sees no ot
   assert.equal((await s.runsOf(earlier.id))[0].meta?.callback?.url, secretUrl);
 });
 
-test("a sandboxed webhook run can't leave instruction files for the Boton's later turns: the CLI is told, and what it wrote anyway is put back", async () => {
+test("a sandboxed webhook run can't leave instruction files for the Boton's later turns: the CLI is told, and what it wrote anyway is put back", { skip: process.platform !== 'linux' && 'Requires the Linux Workspace sandbox and directory handles' }, async () => {
   const bot = await s.newBot('Planter', { access: 'host' });
   const file = (name: string) => join(bot.workspace, name);
   writeFileSync(file('CLAUDE.md'), 'Keep replies short.');

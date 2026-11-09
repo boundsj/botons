@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { existsSync, lstatSync, readlinkSync, statSync, readdirSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync, cpSync, rmSync, symlinkSync, renameSync, realpathSync } from 'node:fs';
+import { existsSync, lstatSync, readlinkSync, statSync, readdirSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync, cpSync, rmSync, rmdirSync, symlinkSync, renameSync, realpathSync } from 'node:fs';
 import { homedir, arch, platform, tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -11,6 +11,7 @@ import { installerRevision } from './revision.mjs';
 import { configureLinger, lingerCommand } from './linger.mjs';
 import { configurePath, onPath, removePathBlock } from './shell-path.mjs';
 import { plan, summary, installOutput } from './output.mjs';
+import { serviceManager, runService } from '../shared/service-manager.mjs';
 import { CLI_NAMES, DB_FILE, SHARE_DIRS, UNITS, earlierEnvNames } from '../shared/legacy-names.mjs';
 let output;
 const envelope = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -24,7 +25,7 @@ export function parse(args) {
     else if (['--home', '--host', '--public-url', '--ref', '--source', '--brain'].includes(key) && args[i + 1] && !args[i + 1].startsWith('--')) o[key.slice(2)] = args[++i];
     else throw new Error(`Unknown or incomplete option: ${key}`);
   }
-  if (!['install', 'upgrade', 'repair', 'uninstall', 'doctor', 'backup', 'restore', 'pair', 'serve'].includes(o.command)) throw new Error('Unknown command');
+  if (!['install', 'upgrade', 'repair', 'uninstall', 'doctor', 'backup', 'restore', 'pair', 'serve', 'start', 'stop', 'status', 'restart'].includes(o.command)) throw new Error('Unknown command');
   for (const key of ['home', 'host', 'public-url']) if (o[key] && /[\r\n\0]/.test(o[key])) throw new Error(`Invalid ${key}`);
   if (o.brain && !['claude', 'codex'].includes(o.brain)) throw new Error('--brain requires claude or codex');
   return o;
@@ -78,6 +79,10 @@ export function sourceVersion(input) {
   const sha = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: input, encoding: 'utf8' }).trim();
   return `${base.split('+')[0]}+git.${sha}`;
 }
+export function nodeArchive(version, host = platform(), cpu = arch()) {
+  if (!['linux', 'darwin'].includes(host) || !['x64', 'arm64'].includes(cpu)) throw new Error('Installer requires Linux or macOS on Intel x64 or arm64');
+  return { filename: `node-${version}-${host}-${cpu}.tar.${host === 'darwin' ? 'gz' : 'xz'}`, extract: host === 'darwin' ? '-xzf' : '-xJf' };
+}
 async function nodeRuntime(root) {
   const index = JSON.parse((await download('https://nodejs.org/dist/index.json')).toString());
   const version = index.find(v => /^v24\./.test(v.version)).version;
@@ -85,13 +90,13 @@ async function nodeRuntime(root) {
   if (validRuntime(join(dest, 'bin/node'))) return join(dest, 'bin/node');
   rmSync(dest, { recursive: true, force: true });
   mkdirSync(dirname(dest), { recursive: true });
-  const filename = `node-${version}-linux-${arch() === 'arm64' ? 'arm64' : 'x64'}.tar.xz`;
+  const { filename, extract } = nodeArchive(version);
   const base = `https://nodejs.org/dist/${version}/`;
   const bytes = await download(base + filename);
   verified(bytes, (await download(base + 'SHASUMS256.txt')).toString(), filename);
   const staging = join(root, `.runtime-${randomUUID()}`);
-  mkdirSync(staging); const archive = join(staging, 'node.tar.xz'); writeFileSync(archive, bytes);
-  try { run('tar', ['-xJf', archive, '--strip-components=1', '-C', staging]); rmSync(archive); renameSync(staging, dest); }
+  mkdirSync(staging); const archive = join(staging, filename); writeFileSync(archive, bytes);
+  try { run('tar', [extract, archive, '--strip-components=1', '-C', staging]); rmSync(archive); renameSync(staging, dest); }
   finally { rmSync(staging, { recursive: true, force: true }); }
   return join(dest, 'bin/node');
 }
@@ -112,7 +117,8 @@ export function packageCommands(osRelease) {
   ];
   throw new Error('Unsupported distribution; install bubblewrap >=0.11, socat, systemd and xz manually.');
 }
-export function dependencyProblems(probe = (cmd, args) => spawnSync(cmd, args, { encoding: 'utf8' })) {
+export function dependencyProblems(probe = (cmd, args) => spawnSync(cmd, args, { encoding: 'utf8' }), host = platform()) {
+  if (host === 'darwin') return probe('tar', ['--version']).status === 0 ? [] : ['tar'];
   const missing = [];
   const bwrap = probe('bwrap', ['--version']);
   if (bwrap.status !== 0 || !/bubblewrap\s+(?:0\.(?:1[1-9]|[2-9]\d)|[1-9]\d*\.\d+)\./.test(bwrap.stdout || '')) missing.push('bubblewrap >=0.11');
@@ -145,7 +151,8 @@ async function main() {
   const root = join(share, 'botons');
   const configHome = process.env.XDG_CONFIG_HOME || join(homedir(), '.config');
   const config = join(configHome, 'botons/env');
-  const units = join(configHome, 'systemd/user');
+  const manager = serviceManager({ home: homedir(), configHome });
+  const units = manager.dir;
   // A managed install under a deprecated name (shared/legacy-names.mjs): used as it is until this moves it, after consent.
   const isDir = (p) => { try { return lstatSync(p).isDirectory(); } catch { return false; } };
   const earlierRoot = isDir(root) ? null : SHARE_DIRS.map(d => join(share, d)).find(p => isDir(p) && existsSync(join(p, 'installer.json'))) ?? null;
@@ -159,7 +166,7 @@ async function main() {
   const handover = (dataDir) => { try { return JSON.parse(readFileSync(join(dataDir, 'name-upgrade.json'), 'utf8')).service ?? null; } catch { return null; } };
   const earlierUnit = UNITS.some(u => existsSync(join(units, `${u.service}.service`)));
   const rootSaved = readSaved(root);
-  const unfinished = !earlierRoot && !!rootSaved && earlierUnit && (!existsSync(join(units, 'botons.service')) || (handover(rootSaved.data)?.unit && !handover(rootSaved.data).done));
+  const unfinished = !earlierRoot && !!rootSaved && earlierUnit && (!existsSync(manager.serviceFile) || (handover(rootSaved.data)?.unit && !handover(rootSaved.data).done));
   let current = join(earlierRoot ?? root, 'current');
   let saved = readSaved(earlierRoot ?? root);
   let data = resolve(o.home || saved?.data || process.env.BOTONS_HOME || join(homedir(), '.botons'));
@@ -170,14 +177,14 @@ async function main() {
     const script = admin === 'serve' ? 'server/src/index.ts' : `scripts/${admin}.ts`;
     const r = spawnSync(node, [realpathSync(join(current, 'installer/admin.mjs')), realpathSync(join(current, script)), ...args], { stdio: 'inherit' }); process.exit(r.status ?? 1);
   }
-  if (platform() !== 'linux' || !['x64', 'arm64'].includes(arch())) throw new Error('Installer requires Linux x64 or arm64');
+  nodeArchive('v24');
   // An install under a deprecated name that this installer did not make (a checkout's deploy) moves with its own tools.
-  if (!earlierRoot && !unfinished && !existsSync(join(units, 'botons.service')) && (SHARE_DIRS.some(d => isDir(join(share, d))) || earlierUnit)) {
+  if (!earlierRoot && !unfinished && !existsSync(manager.serviceFile) && (SHARE_DIRS.some(d => isDir(join(share, d))) || earlierUnit)) {
     throw new Error('Existing Botons install under a deprecated name that this installer did not make: run `npm run migrate:names` in its checkout first; nothing changed.');
   }
   let marker = join(earlierRoot ?? root, 'installer.json');
   if (existsSync(earlierRoot ?? root) && !existsSync(marker)) throw new Error('Existing unmanaged Botons directory; refusing to overwrite it.');
-  if (!existsSync(marker) && (existsSync(config) || existsSync(join(units, 'botons.service')))) throw new Error('Existing unmanaged Botons service/configuration; refusing to overwrite it.');
+  if (!existsSync(marker) && (existsSync(config) || existsSync(manager.serviceFile))) throw new Error('Existing unmanaged Botons service/configuration; refusing to overwrite it.');
   const bin = join(homedir(), '.local/bin/botons');
   // The command's deprecated names, where this installer made them (shared/legacy-names.mjs): they run it for one release.
   const legacyBins = () => CLI_NAMES.map(n => join(homedir(), '.local/bin', n)).filter(p => {
@@ -186,6 +193,19 @@ async function main() {
   // A release's installer: installer/botons.mjs, or the file a release made under an earlier name has (shared/legacy-names.mjs).
   const entryOf = (dir) => ['botons', ...CLI_NAMES].map(n => join(dir, 'installer', `${n}.mjs`)).find(p => existsSync(p)) ?? join(dir, 'installer', 'botons.mjs');
   if (existsSync(bin) && (!existsSync(current) || realpathSync(bin) !== realpathSync(entryOf(current)))) throw new Error('Existing botons command; refusing to overwrite it.');
+  const services = (action, kind = 'server') => {
+    const result = runService(action, { home: homedir(), configHome }, kind, (cmd, args) => {
+      output?.detail(JSON.stringify([cmd, ...args]));
+      return spawnSync(cmd, args, { encoding: 'utf8' });
+    });
+    if (action === 'status' && result?.stdout) console.log(result.stdout.trimEnd());
+  };
+  if (['start', 'stop', 'status', 'restart'].includes(o.command)) {
+    if (!saved?.node || !existsSync(manager.serviceFile)) throw new Error('No managed service; run install first.');
+    if (o['dry-run']) { console.log(`${o.command}: ${manager.serviceFile}`); return; }
+    services(o.command);
+    return;
+  }
   console.log(`Botons ${version}`);
   console.log(plan(o.command, o.brain));
   if (o.purge) console.log(`• Permanently delete data at ${data} and its configuration.`);
@@ -221,26 +241,44 @@ async function main() {
     if (!existsSync(marker)) throw new Error('No managed install');
 
 
-    if (!o['no-service']) { run('systemctl', ['--user', 'disable', '--now', 'botons', 'botons-backup.timer']); }
-    const units = join(process.env.XDG_CONFIG_HOME || join(homedir(), '.config'), 'systemd/user');
-    for (const unit of ['botons.service', 'botons-backup.service', 'botons-backup.timer']) rmSync(join(units, unit), { force: true });
+    if (!o['no-service']) {
+      if (platform() === 'darwin') { services('stop'); services('stop', 'backup'); }
+      else run('systemctl', ['--user', 'disable', '--now', 'botons', 'botons-backup.timer']);
+    }
+    for (const unit of manager.files) rmSync(unit, { force: true });
     rmSync(bin, { force: true });
     for (const p of legacyBins()) rmSync(p, { force: true });
     removePathBlock(homedir());
     for (const item of ['current', 'releases', 'node']) rmSync(join(root, item), { recursive: true, force: true });
-    if (!o['no-service']) run('systemctl', ['--user', 'daemon-reload']);
-    if (o.purge) { rmSync(data, { recursive: true, force: true }); rmSync(config, { force: true }); rmSync(root, { recursive: true, force: true }); }
+    if (!o['no-service']) services('reload');
+    if (o.purge) {
+      rmSync(data, { recursive: true, force: true });
+      rmSync(config, { force: true });
+      if (platform() === 'darwin') {
+        const logs = join(dirname(config), 'logs');
+        const logStat = lstatSync(logs, { throwIfNoEntry: false });
+        if (logStat?.isSymbolicLink()) rmSync(logs);
+        else if (logStat?.isDirectory()) {
+          for (const name of ['server.log', 'server.error.log', 'backup.log', 'backup.error.log']) rmSync(join(logs, name), { force: true });
+        }
+        for (const dir of [logs, dirname(config)]) {
+          try { rmdirSync(dir); } catch (error) { if (!['ENOENT', 'ENOTEMPTY'].includes(error.code)) throw error; }
+        }
+      }
+      rmSync(root, { recursive: true, force: true });
+    }
     console.log('✓ Botons uninstalled.');
     return;
   }
   if (!o['no-service']) {
-    const manager = spawnSync('systemctl', ['--user', 'show-environment'], { encoding: 'utf8' });
-    if (manager.status !== 0) throw new Error('No systemd user manager/session. Log in with a user session or explicitly use --no-service.');
+    try { services('check'); }
+    catch { throw new Error(platform() === 'darwin' ? 'No launchd GUI user session. Log in to the Mac or explicitly use --no-service.' : 'No systemd user manager/session. Log in with a user session or explicitly use --no-service.'); }
   }
 
   const missing = dependencyProblems();
   if (missing.length) {
     output.detail('Missing requirements: ' + missing.join(', '));
+    if (platform() === 'darwin') throw new Error('macOS needs its built-in tar command on PATH. Restore it and retry; no system packages were changed.');
     const commands = packageCommands(readFileSync('/etc/os-release', 'utf8'));
     output.detail(commands.map(args => ['sudo', ...args].join(' ')).join('\n'));
     if (o['no-sudo']) throw new Error('Required system tools missing; run the commands above then retry');
@@ -336,9 +374,7 @@ async function main() {
     rmSync(staging, { recursive: true, force: true });
     if (temporary) rmSync(temporary, { recursive: true, force: true });
   }
-  const unitRoot = join(process.env.XDG_CONFIG_HOME || join(homedir(), '.config'), 'systemd/user');
-  const priorUnits = ['botons.service', 'botons-backup.service', 'botons-backup.timer'].map(name => {
-    const path = join(unitRoot, name);
+  const priorUnits = manager.files.map(path => {
     return { path, contents: existsSync(path) ? readFileSync(path) : null };
   });
   const priorConfig = existsSync(config) ? readFileSync(config) : null;
@@ -365,7 +401,10 @@ async function main() {
       try {
         run(node, [realpathSync(join(current, 'scripts/install-service.ts')), '--app', current, '--name', 'botons', '--quiet'], env);
         run(node, [realpathSync(join(current, 'scripts/install-backup-timer.ts')), '--app', current, '--quiet'], env);
-        run('systemctl', ['--user', 'daemon-reload']); run('systemctl', ['--user', 'enable', '--now', 'botons-backup.timer']); run('systemctl', ['--user', 'restart', 'botons']); run('systemctl', ['--user', 'enable', 'botons']);
+        if (platform() === 'darwin') { services('restart', 'backup'); services('restart'); }
+        else {
+          run('systemctl', ['--user', 'daemon-reload']); run('systemctl', ['--user', 'enable', '--now', 'botons-backup.timer']); run('systemctl', ['--user', 'restart', 'botons']); run('systemctl', ['--user', 'enable', 'botons']);
+        }
         await waitHealthy(env);
       } catch (e) {
         throw new Error(`${e.message}. Activation failed; attempting to restore code and configuration. Schema changes require restoring the fresh backup; data is never restored automatically.`);
@@ -374,7 +413,10 @@ async function main() {
     writeFileSync(marker, JSON.stringify({ data, node, source: selected || saved?.source || null, ref: o.ref || saved?.ref || null }));
   } catch (error) {
     try {
-      if (!old && !o['no-service']) spawnSync('systemctl', ['--user', 'disable', '--now', 'botons', 'botons-backup.timer'], { stdio: output.stdio });
+      if (!o['no-service']) {
+        if (platform() === 'darwin') { services('stop'); services('stop', 'backup'); }
+        else if (!old) spawnSync('systemctl', ['--user', 'disable', '--now', 'botons', 'botons-backup.timer'], { stdio: output.stdio });
+      }
       for (const unit of priorUnits) {
         if (unit.contents) writeFileSync(unit.path, unit.contents);
         else rmSync(unit.path, { force: true });
@@ -390,13 +432,14 @@ async function main() {
         else rmSync(path, { force: true });
       }
       if (!o['no-service']) {
-        run('systemctl', ['--user', 'daemon-reload']);
+        services('reload');
         if (undoNames) {
           undoNames();
           undoNames = null;
           await waitHealthy(previousEnv);
         } else if (old) {
-          run('systemctl', ['--user', 'restart', 'botons']);
+          if (platform() === 'darwin') { services('start', 'backup'); services('start'); }
+          else run('systemctl', ['--user', 'restart', 'botons']);
           await waitHealthy(previousEnv);
         }
       }
@@ -410,7 +453,7 @@ async function main() {
   output.done('Botons and backups installed');
   let pathReady = true;
   await configurePath({ home: homedir(), shell: process.env.SHELL, path: process.env.PATH, yes: true }, consent, message => { pathReady = false; output.detail(message); });
-  const bootReady = o['no-service'] ? true : await configureLinger({ yes: o.yes, noSudo: o['no-sudo'] }, async (message, yes) => { if (message.startsWith('Run exactly:')) await consent(message, yes); }, { log: message => output.detail(message) });
+  const bootReady = o['no-service'] || platform() === 'darwin' ? true : await configureLinger({ yes: o.yes, noSudo: o['no-sudo'] }, async (message, yes) => { if (message.startsWith('Run exactly:')) await consent(message, yes); }, { log: message => output.detail(message) });
   const command = onPath(homedir(), process.env.PATH) ? 'botons' : bin;
   if (!o['no-service'] && hasDb()) {
     run(node, [realpathSync(join(current, 'scripts/backup.ts'))], env);
@@ -418,6 +461,7 @@ async function main() {
   output.replay();
   output.done('Setup ready');
   if (!pathReady) console.log(`• PATH setup needs attention; use ${command} and see ${join(root, 'install.log')}.`);
+  if (platform() === 'darwin' && !o['no-service']) console.log('• Botons starts at login and runs while you are logged in and the Mac is awake.');
   console.log(summary({ command, url: env.BOTONS_PUBLIC_URL || `http://127.0.0.1:${env.BOTONS_PORT || env.PORT || 7777}`, running: !o['no-service'], bootReady, bootFix: lingerCommand() }));
   } catch (error) {
     // Anything that failed before the activation's own rollback: the earlier units come back.

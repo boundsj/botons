@@ -150,7 +150,7 @@ test('a server killed without draining: the next start stops the agent CLI it le
   t.after(() => orphan && groupAlive(orphan) && process.kill(-orphan, 'SIGKILL'));
 
   const first = await spawnServer(t, env, undefined, home);
-  const bot = await first.api<Bot>('POST', '/api/bots', { name: 'Worker', provider: 'claude-cli' });
+  const bot = await first.api<Bot>('POST', '/api/bots', { name: 'Worker', provider: 'claude-cli', access: 'host' });
   await first.api('POST', `/api/bots/${bot.id}/messages`, { text: 'do the thing' });
   await until(() => existsSync(agents) && readdirSync(agents).length === 1);
   orphan = Number(readdirSync(agents)[0].replace(/\.json$/, ''));

@@ -1,3 +1,5 @@
+import { serviceManager } from '../shared/service-manager.mjs';
+import { browserSearchPaths } from '../server/src/browser-paths.ts';
 import { BROWSER_CONNECTOR } from '../shared/util.ts';
 import { cliHome, cliHomesEnv } from '../server/src/cli-homes.ts';
 import { sandboxProblem } from '../server/src/sandbox.ts';
@@ -417,7 +419,7 @@ export async function diagnose(o: DoctorOptions): Promise<Finding[]> {
   const newest = backups.at(-1);
   if (!existsSync(dbPath)) {
     // Nothing to back up yet.
-  } else if (!newest) add('backups', 'warn', 'No backup yet', managed ? 'Run `botons backup`; check the nightly timer with `systemctl --user status botons-backup.timer`.' : container ? 'docker compose exec botons botons backup, and schedule it (docs/DOCKER.md)' : 'npm run backup, and npm run backup:install for the nightly timer');
+  } else if (!newest) add('backups', 'warn', 'No backup yet', managed ? `Run \`botons backup\`; check the scheduled backup with \`${process.platform === 'darwin' ? `launchctl print ${serviceManager({ home: env.HOME || homedir() }).backupTarget}` : 'systemctl --user status botons-backup.timer'}\`.` : container ? 'docker compose exec botons botons backup, and schedule it (docs/DOCKER.md)' : 'npm run backup, and npm run backup:install for the nightly timer');
   else {
     const age = now - backupTime(newest);
     if (age > BACKUP_STALE_MS) add('backups', 'warn', `The newest backup (${newest}) is ${Math.floor(age / 86_400_000)} days old`, 'Check the backup timer or cron job.');
@@ -505,6 +507,8 @@ export async function diagnose(o: DoctorOptions): Promise<Finding[]> {
     else add('Workspace tools', 'ok', 'The production overlay, private /proc and seccomp sandbox probe passed.');
   }
 
+  if (process.platform === 'darwin') workspaceUnavailable.push('Claude', 'Codex', 'API tools and local MCP connectors');
+
   if (workspaceUnavailable.length) add('Workspace', 'info', `Workspace is unavailable for ${workspaceUnavailable.join(', ')} on this server. Use Full computer access.`);
 
   // The managed browser: its library, a Chromium, and that Chromium starting the way the server starts it (in a temp
@@ -539,6 +543,16 @@ export async function diagnose(o: DoctorOptions): Promise<Finding[]> {
         }
         if (net) add('browser', net.status, net.message, net.fix);
       }
+    }
+  }
+
+  if (!container && process.platform === 'darwin') {
+    const m = serviceManager({ home: env.HOME || homedir() });
+    if (!existsSync(m.serviceFile)) add('service', 'info', 'No Botons LaunchAgent (fine if you run it another way)');
+    else {
+      const state = spawnSync('launchctl', ['print', m.target], { encoding: 'utf8', timeout: 3000 });
+      const running = state.status === 0 && /^\s*state = running\s*$/m.test(state.stdout);
+      add('service', running ? 'ok' : 'warn', `Botons LaunchAgent is ${running ? 'running' : 'not running'}`, running ? undefined : `launchctl print ${m.target}; check logs beside the service env file.`);
     }
   }
 
@@ -598,16 +612,16 @@ function storageFinding(db: DatabaseSync, cfg: Config, add: (check: string, stat
 /** The Chromium the server would run: BOTONS_BROWSER_PATH, else one Playwright downloaded, else the system's (browser.ts). */
 export function findChromium(path: string, env: NodeJS.ProcessEnv): string | null {
   if (path) return existsSync(path) ? path : null;
-  const cache = env.PLAYWRIGHT_BROWSERS_PATH || join(env.HOME || homedir(), '.cache', 'ms-playwright');
+  const cache = env.PLAYWRIGHT_BROWSERS_PATH || (process.platform === 'darwin' ? join(env.HOME || homedir(), 'Library', 'Caches', 'ms-playwright') : join(env.HOME || homedir(), '.cache', 'ms-playwright'));
   let bundled: string[] = [];
   try {
     bundled = readdirSync(cache)
       .filter((d) => /^chromium-\d+$/.test(d))
       .sort()
       .reverse()
-      .flatMap((d) => ['chrome-linux64/chrome', 'chrome-linux/chrome', 'chrome-mac/Chromium.app/Contents/MacOS/Chromium'].map((f) => join(cache, d, f)));
+      .flatMap((d) => ['chrome-linux64/chrome', 'chrome-linux/chrome', 'chrome-mac/Chromium.app/Contents/MacOS/Chromium', 'chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing', 'chrome-mac-x64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing'].map((f) => join(cache, d, f)));
   } catch {}
-  const system = ['/usr/bin/chromium', '/usr/bin/chromium-browser', '/usr/bin/google-chrome', '/usr/bin/google-chrome-stable', '/opt/google/chrome/chrome'];
+  const system = browserSearchPaths(process.platform, env.HOME || homedir());
   return [...bundled, ...system].find((p) => existsSync(p)) ?? null;
 }
 

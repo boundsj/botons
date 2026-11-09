@@ -266,7 +266,7 @@ test('a CLI that writes a successful result once killed at the limit still times
     for (const [provider, cli, fixture] of [['claude-cli', t.claude, 'claude/reply'], ['codex-cli', t.codex, 'codex/reply']] as const) {
       got.callbacks.length = 0;
       const bot = t.storeBot(`Kevin Late ${provider}`, provider);
-      const routine = await t.newRoutine(bot.id, { name: 'Late', instruction: 'Do it', webhook: true, callbackUrl: `${at}/callback`, timeLimitMs: 1000 });
+      const routine = await t.newRoutine(bot.id, { name: 'Late', instruction: 'Do it', webhook: true, ...(process.platform !== 'linux' && { webhookWorkspace: false }), callbackUrl: `${at}/callback`, timeLimitMs: 1000 });
       // It answers SIGTERM with the rest of its output, a successful result included, and exits 0.
       cli.script({ fixture, hang: true, lines: 2, lateResult: true }, fixture);
       const { runId } = (await (await t.hook(routine, '', { method: 'POST', body: '{}', headers: { 'content-type': 'application/json' } })).json()) as { runId: string };

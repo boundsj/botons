@@ -27,7 +27,17 @@ const del = (bot: Bot, paths: unknown, token?: string | null) => call<TrashResul
 const trashOf = async (bot: Bot) => (await call<TrashItem[]>('GET', `/api/bots/${bot.id}/trash`)).data;
 const auditOf = async (action: string): Promise<AuditEvent[]> => (await call<AuditEvent[]>('GET', '/api/audit')).data.filter((e) => e.action === action);
 
-test('deleting moves files and folders to the trash, kept with where they were and whose; restore puts them back', async () => {
+/** Seed a trash item without using the Linux-only move, so authorization and refusal run everywhere. */
+function seedTrash(bot: Bot, path: string, id: string) {
+  const item = { id, origin: 'workspace', botId: bot.id, botName: bot.name, path, name: path.split('/').at(-1)!, isDir: false, size: 1, deletedAt: new Date(clock).toISOString(), reason: 'deleted' };
+  const dir = join(s.home, 'trash', id);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, 'meta.json'), JSON.stringify(item));
+  writeFileSync(join(dir, 'item'), 'k');
+  return item;
+}
+
+test('deleting moves files and folders to the trash, kept with where they were and whose; restore puts them back', { skip: process.platform !== 'linux' && 'Requires Linux directory handles for confined file operations' }, async () => {
   const bot = await newBot('Kevin');
   put(bot, 'notes.md', 'hello');
   put(bot, 'reports/a.txt', 'aaaa');
@@ -63,7 +73,7 @@ test('deleting moves files and folders to the trash, kept with where they were a
   assert.equal((await call('POST', `/api/trash/${folder.id}/restore`)).status, 404);
 });
 
-test('a restore never replaces anything: a taken name gets -2, -3; a folder that is gone is made again', async () => {
+test('a restore never replaces anything: a taken name gets -2, -3; a folder that is gone is made again', { skip: process.platform !== 'linux' && 'Requires Linux directory handles for confined file operations' }, async () => {
   const bot = await newBot('Stuart');
   put(bot, 'docs/plan.txt', 'first');
   const [first] = (await del(bot, ['docs/plan.txt'])).data.trashed;
@@ -89,7 +99,7 @@ test('a restore never replaces anything: a taken name gets -2, -3; a folder that
   assert.deepEqual((await call('POST', `/api/trash/${z.id}/restore`)).data, { origin: 'workspace', path: 'z.txt', renamed: true, folderGone: true });
 });
 
-test('paths stay inside the workspace: .., absolute paths, symlinked folders; roots and kept folders are refused', async () => {
+test('paths stay inside the workspace: .., absolute paths, symlinked folders; roots and kept folders are refused', { skip: process.platform !== 'linux' && 'Requires Linux directory handles for confined file operations' }, async () => {
   const bot = await newBot('Bob');
   put(bot, 'inbox/a.txt');
   put(bot, 'ok.txt');
@@ -127,7 +137,7 @@ test('only a paired device: no Boton token, its own included, reaches delete, re
   const bot = await newBot('Jerry');
   put(bot, 'inbox/a.txt');
   put(bot, 'b.txt');
-  const [item] = (await del(bot, ['b.txt'])).data.trashed;
+  const item = seedTrash(bot, 'b.txt', 'aaaaaaaaaaaaaaa4');
   const boton = app.auth.mintBotonToken(bot.id).token;
   const routes: [string, string, unknown?][] = [
     ['POST', `/api/bots/${bot.id}/files/delete`, { paths: ['inbox/a.txt'] }],
@@ -158,7 +168,7 @@ test('only a paired device: no Boton token, its own included, reaches delete, re
   rmSync(join(s.home, 'shared', 'a.txt'));
 });
 
-test('delete forever and empty: gone from disk, recorded; a deleted Boton’s items can only be deleted forever', async () => {
+test('delete forever and empty: gone from disk, recorded; a deleted Boton’s items can only be deleted forever', { skip: process.platform !== 'linux' && 'Requires Linux directory handles for confined file operations' }, async () => {
   const bot = await newBot('Mel');
   put(bot, 'a.txt');
   put(bot, 'b.txt');
@@ -182,7 +192,7 @@ test('delete forever and empty: gone from disk, recorded; a deleted Boton’s it
   assert.equal((await call('DELETE', `/api/trash/${d.id}`)).status, 204);
 });
 
-test('inbox: Keep pins a file; Clear inbox and the daily cleanup skip kept ones; nothing outside the inbox is touched', async () => {
+test('inbox: Keep pins a file; Clear inbox and the daily cleanup skip kept ones; nothing outside the inbox is touched', { skip: process.platform !== 'linux' && 'Requires Linux directory handles for confined file operations' }, async () => {
   const bot = await newBot('Phil');
   put(bot, 'inbox/old.pdf', 'old', 40);
   put(bot, 'inbox/kept.pdf', 'kept', 40);
@@ -243,7 +253,7 @@ test('inbox: Keep pins a file; Clear inbox and the daily cleanup skip kept ones;
   await call('PATCH', '/api/settings', { inboxCleanupDays: 30 });
 });
 
-test('an inbox that is a symlink is never swept; the trash past 30 days is deleted for good, recorded by Botons', async () => {
+test('an inbox that is a symlink is never swept; the trash past 30 days is deleted for good, recorded by Botons', { skip: process.platform !== 'linux' && 'Requires Linux directory handles for confined file operations' }, async () => {
   const bot = await newBot('Otto');
   mkdirSync(bot.workspace, { recursive: true });
   const elsewhere = tempDir('botons-trash-inbox-');
@@ -269,7 +279,7 @@ test('an inbox that is a symlink is never swept; the trash past 30 days is delet
   assert.equal(ev?.details.afterDays, 30);
 });
 
-test('sizes: each Boton’s workspace, inbox and trash, and the shared folder', async () => {
+test('sizes: each Boton’s workspace, inbox and trash, and the shared folder', { skip: process.platform !== 'linux' && 'Requires Linux directory handles for confined file operations' }, async () => {
   const bot = await newBot('Norbert');
   put(bot, 'inbox/a.bin', 'a'.repeat(1000));
   put(bot, 'work/b.bin', 'b'.repeat(500));
@@ -288,7 +298,7 @@ test('sizes: each Boton’s workspace, inbox and trash, and the shared folder', 
   assert.equal(all.trashKeepDays, 30);
 });
 
-test('a restore whose folder a Boton turned into a link out of the workspace makes nothing out there', async () => {
+test('a restore whose folder a Boton turned into a link out of the workspace makes nothing out there', { skip: process.platform !== 'linux' && 'Requires Linux directory handles for confined file operations' }, async () => {
   const bot = await newBot('Carl');
   put(bot, 'out/sub/x.txt', 'x');
   const [x] = (await del(bot, ['out/sub/x.txt'])).data.trashed;
@@ -307,7 +317,7 @@ function swapForLink(folder: string, to: string) {
   symlinkSync(to, folder);
 }
 
-test('a folder swapped for a link out just before the move: the checked file goes, nothing outside is touched', async () => {
+test('a folder swapped for a link out just before the move: the checked file goes, nothing outside is touched', { skip: process.platform !== 'linux' && 'Requires Linux directory handles for confined file operations' }, async () => {
   const bot = await newBot('Gru');
   put(bot, 'a/b.txt', 'inside');
   const elsewhere = tempDir('botons-trash-swap-');
@@ -336,7 +346,7 @@ test('a folder swapped for a link out just before the move: the checked file goe
   assert.equal((await trashOf(bot)).length, before);
 });
 
-test('a restore whose folder is swapped for a link out just before a folder is made: nothing is made out there', async () => {
+test('a restore whose folder is swapped for a link out just before a folder is made: nothing is made out there', { skip: process.platform !== 'linux' && 'Requires Linux directory handles for confined file operations' }, async () => {
   const bot = await newBot('Lucy');
   put(bot, 'a/sub/x.txt', 'x');
   const [x] = (await del(bot, ['a/sub/x.txt'])).data.trashed;
@@ -400,7 +410,7 @@ test('across two disks a delete is refused and nothing changes, a race or an unw
   assert.deepEqual(await trashOf(bot), []);
 });
 
-test('the shared folder: listed, downloaded, deleted to the trash and restored there; its own folder is kept', async () => {
+test('the shared folder: listed, downloaded, deleted to the trash and restored there; its own folder is kept', { skip: process.platform !== 'linux' && 'Requires Linux directory handles for confined file operations' }, async () => {
   const shared = join(s.home, 'shared');
   for (const n of readdirSync(shared)) rmSync(join(shared, n), { recursive: true });
   mkdirSync(join(shared, 'notes'), { recursive: true });
@@ -461,7 +471,8 @@ test('where folders can’t be held open, nothing moves to or from the trash, ho
   const bot = await newBot('Jerry');
   put(bot, 'out/keep.txt', 'k');
   put(bot, 'inbox/old.txt', 'o', 400);
-  const [item] = (await del(bot, ['out/keep.txt'])).data.trashed;
+  const item = seedTrash(bot, 'out/keep.txt', 'aaaaaaaaaaaaaaa5');
+  rmSync(join(bot.workspace, 'out/keep.txt'));
   const elsewhere = tempDir('botons-trash-nohandles-');
   let raced = 0;
   // A Boton swapping the folder for a link out at every point a move could be made: none is reached.
@@ -489,10 +500,15 @@ test('where folders can’t be held open, nothing moves to or from the trash, ho
     hooks.noHandles = undefined;
     hooks.beforeOpen = hooks.beforeRename = hooks.beforeMkdir = hooks.beforeClaim = undefined;
   }
-  assert.equal((await call('POST', `/api/trash/${item.id}/restore`)).status, 200);
+  if (process.platform === 'linux') assert.equal((await call('POST', `/api/trash/${item.id}/restore`)).status, 200);
+  else {
+    assert.equal((await call('POST', `/api/trash/${item.id}/restore`)).status, 501);
+    assert.equal((await call('DELETE', `/api/trash/${item.id}`)).status, 204);
+    assert.equal(existsSync(join(s.home, 'trash', item.id)), false);
+  }
 });
 
-test('a restore never replaces what a Boton puts at its name meanwhile: a file passes over it; without hard links it stays in the trash', async () => {
+test('a restore never replaces what a Boton puts at its name meanwhile: a file passes over it; without hard links it stays in the trash', { skip: process.platform !== 'linux' && 'Requires Linux directory handles for confined file operations' }, async () => {
   const bot = await newBot('Tim');
   put(bot, 'd/report.txt', 'restored');
   const [a] = (await del(bot, ['d/report.txt'])).data.trashed;
@@ -523,7 +539,7 @@ test('a restore never replaces what a Boton puts at its name meanwhile: a file p
   assert.equal(readFileSync(join(s.home, 'trash', b.id, 'item'), 'utf8'), 'restored');
 });
 
-test('a folder’s restore claims its name with an empty folder: what a Boton puts in or over the claim is never replaced', async () => {
+test('a folder’s restore claims its name with an empty folder: what a Boton puts in or over the claim is never replaced', { skip: process.platform !== 'linux' && 'Requires Linux directory handles for confined file operations' }, async () => {
   const bot = await newBot('Mel');
   for (const [i, race] of [
     ['in', (target: string) => writeFileSync(join(target, 'mine.txt'), 'NEW VALUABLE CONTENT')],
@@ -558,7 +574,7 @@ test('a folder’s restore claims its name with an empty folder: what a Boton pu
   assert.deepEqual(readdirSync(join(bot.workspace, 'box')), ['mine.txt']);
 });
 
-test('every kept inbox file stays kept: one past the limit is refused, Clear inbox and the daily cleanup skip them all', async () => {
+test('every kept inbox file stays kept: one past the limit is refused, Clear inbox and the daily cleanup skip them all', { skip: process.platform !== 'linux' && 'Requires Linux directory handles for confined file operations' }, async () => {
   const bot = await newBot('Norbert');
   const names = Array.from({ length: 1000 }, (_, i) => `k${i}.txt`);
   for (const n of names) put(bot, `inbox/${n}`, n, 40);
@@ -589,7 +605,7 @@ test('every kept inbox file stays kept: one past the limit is refused, Clear inb
   assert.equal((await call<TrashResult>('POST', `/api/bots/${bot.id}/inbox/clear`)).data.trashed.length, 0);
 });
 
-test('the daily cleanup never deletes an item whose meta.json is unreadable; only an empty unfinished one, and records only what it deletes', async () => {
+test('the daily cleanup never deletes an item whose meta.json is unreadable; only an empty unfinished one, and records only what it deletes', { skip: process.platform !== 'linux' && 'Requires Linux directory handles for confined file operations' }, async () => {
   const bot = await newBot('Herb');
   const trash = join(s.home, 'trash');
   put(bot, 'truncated.txt', 'payload');
@@ -625,7 +641,7 @@ test('the daily cleanup never deletes an item whose meta.json is unreadable; onl
   rmSync(join(trash, staged[2]), { recursive: true });
 });
 
-test('a file a Boton swaps in just before the move stays in the trash as what it is; nothing is renamed back over its name', async () => {
+test('a file a Boton swaps in just before the move stays in the trash as what it is; nothing is renamed back over its name', { skip: process.platform !== 'linux' && 'Requires Linux directory handles for confined file operations' }, async () => {
   const bot = await newBot('Phil');
   put(bot, 'f.txt', 'checked');
   hooks.beforeRename = () => {
@@ -646,7 +662,7 @@ test('a file a Boton swaps in just before the move stays in the trash as what it
   assert.equal(readFileSync(join(bot.workspace, 'f-2.txt'), 'utf8'), 'NEW VALUABLE CONTENT!');
 });
 
-test('the daily cleanup keeps, and logs, an item whose deletion time is missing, not an exact time, or in the future', async () => {
+test('the daily cleanup keeps, and logs, an item whose deletion time is missing, not an exact time, or in the future', { skip: process.platform !== 'linux' && 'Requires Linux directory handles for confined file operations' }, async () => {
   const bot = await newBot('Jerry');
   const trash = join(s.home, 'trash');
   const values: Record<string, unknown> = { missing: undefined, invalid: 'yesterday', inexact: '2020-01-01', number: 0, future: new Date(clock + 365 * DAY).toISOString() };
@@ -667,7 +683,7 @@ test('the daily cleanup keeps, and logs, an item whose deletion time is missing,
   for (const name of ['missing', 'invalid', 'inexact', 'number']) rmSync(join(trash, ids[name]), { recursive: true });
 });
 
-test('a restore reports where it really landed when a Boton moves the folder held open, and makes nothing out of the workspace', async () => {
+test('a restore reports where it really landed when a Boton moves the folder held open, and makes nothing out of the workspace', { skip: process.platform !== 'linux' && 'Requires Linux directory handles for confined file operations' }, async () => {
   const bot = await newBot('Tim');
   const elsewhere = tempDir('botons-trash-landed-');
   for (const [kind, rel] of [['file', 'p/x.txt'], ['folder', 'q/box']] as const) {

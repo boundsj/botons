@@ -1,10 +1,15 @@
 import { mkdirSync, existsSync, renameSync, openSync, appendFileSync, readFileSync } from 'node:fs';
 import { dirname } from 'node:path';
-export function plan(command, brain) {
+export function plan(command, brain, host = process.platform) {
   return command === 'uninstall' ? '• Stop Botons and remove its managed program, units and PATH block; keep data unless --purge.' : [
     '• Set up Node 24 for Botons (system Node untouched).',
-    '• Install missing sandbox tools, including bubblewrap (sudo).',
-    '• Start Botons at boot (linger), configure backups and PATH.',
+    ...(host === 'darwin' ? [
+      '• Workspace access and local MCP commands require Linux; choose Full computer access on macOS.',
+      '• Start Botons at login with a LaunchAgent, configure backups and PATH.',
+    ] : [
+      '• Install missing sandbox tools, including bubblewrap (sudo).',
+      '• Start Botons at boot (linger), configure backups and PATH.',
+    ]),
     `• ${brain ? `Install ${brain} if missing; sign in later in setup.` : 'Keep existing brains; choose or install a CLI in setup.'}`,
   ].join('\n');
 }

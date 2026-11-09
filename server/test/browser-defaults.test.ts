@@ -7,6 +7,7 @@ import { after, test } from 'node:test';
 import type { BotTemplate } from '../../shared/types.ts';
 import { BROWSER_CONNECTOR } from '../../shared/util.ts';
 import { findBrowser } from '../../server/src/browser.ts';
+import { browserSearchPaths } from '../src/browser-paths.ts';
 import { browserUsable, drivesBrowser, newBotonConnections } from '../../server/src/browser-policy.ts';
 import { Connectors, countedConnections, MAX_CONNECTIONS } from '../../server/src/connectors.ts';
 import { connectionIds } from '../../server/src/portable.ts';
@@ -21,6 +22,16 @@ openSchema(db);
 const connectors = new Connectors(db, { home, providers: { ids: () => [], get: () => undefined } as never, store: { atomically: (fn: () => unknown) => fn(), dropFromBots: () => {} } as never });
 const fifty = Array.from({ length: MAX_CONNECTIONS }, (_, i) => `lib:c${i}`);
 const starter = (id: string) => STARTERS.find((t) => t.id === id) as unknown as BotTemplate;
+
+test('browser discovery includes macOS applications and preserves Linux executable paths', () => {
+  assert.deepEqual(browserSearchPaths('darwin', '/home/you'), [
+    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+    '/Applications/Chromium.app/Contents/MacOS/Chromium',
+    '/home/you/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+    '/home/you/Applications/Chromium.app/Contents/MacOS/Chromium',
+  ]);
+  assert.ok(browserSearchPaths('linux').includes('/usr/bin/chromium'));
+});
 
 test('a new Boton gets the browser unless its request names its connectors; a template keeps every connector it had', () => {
   assert.deepEqual(newBotonConnections(undefined, [], true), [BROWSER_CONNECTOR]);

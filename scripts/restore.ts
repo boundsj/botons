@@ -95,7 +95,7 @@ try {
   restore(home, plan);
 } catch (err) {
   lock?.release();
-  if (err instanceof DataDirInUseError) fail(`${err.message.replace('Nothing was changed.', '')}Stop the server first (systemctl --user stop ${defaultUnitName()}, or docker compose stop botons). Nothing was changed.`);
+  if (err instanceof DataDirInUseError) fail(`${err.message.replace('Nothing was changed.', '')}Stop the server first (${process.platform === 'darwin' ? 'botons stop' : `systemctl --user stop ${defaultUnitName()}, or docker compose stop botons`}). Nothing was changed.`);
   const message = (err as Error).message;
   const next = /No space left on device|ENOSPC/.test(message)
     ? `\nFree space on the disk that holds ${home} (df -h ${home}), or restore onto a larger disk, then run this again.`

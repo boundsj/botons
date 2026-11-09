@@ -62,7 +62,7 @@ test('the packages folder lists nothing until it exists, and says where it is', 
   bob = await s.newBot('Bob', { skills: [] });
 });
 
-test('a package with anything Botons does not read safely is listed with why, and nothing in a folder is ever run', async () => {
+test('a package with anything Botons does not read safely is listed with why, and nothing in a folder is ever run', { skip: process.platform !== 'linux' && 'Requires Linux directory handles for confined file operations' }, async () => {
   const script = `#!/bin/sh\ntouch ${RAN}\n`;
   const ok = pkg('git-digest', md('git-digest', 'Summarize recent commits.', 'Run `botons ask` with the summary.'), { 'scripts/run.sh': script, 'docs/notes.md': 'notes' });
   chmodSync(join(ok, 'scripts/run.sh'), 0o755);
@@ -119,7 +119,7 @@ test('a package with anything Botons does not read safely is listed with why, an
   for (const folder of Object.keys(expect)) rmSync(join(dir, folder), { recursive: true, force: true });
 });
 
-test('a new package installs only exactly as reviewed, to exactly the Botons chosen, all at once or not at all', async () => {
+test('a new package installs only exactly as reviewed, to exactly the Botons chosen, all at once or not at all', { skip: process.platform !== 'linux' && 'Requires Linux directory handles for confined file operations' }, async () => {
   pkg(
     'weekly-report',
     md('weekly-report', 'Write the weekly report.', '1. Read https://status.example.com/feed.\n2. Send it with `botons ask`.', 'version: 1.0.0\nallowed-tools: Bash(git:*)\nlicense: MIT\n'),
@@ -187,7 +187,7 @@ test('a new package installs only exactly as reviewed, to exactly the Botons cho
   ]);
 });
 
-test('an update shows the diff and only what is new, keeps who has it, and keeps the old text to put back', async () => {
+test('an update shows the diff and only what is new, keeps who has it, and keeps the old text to put back', { skip: process.platform !== 'linux' && 'Requires Linux directory handles for confined file operations' }, async () => {
   const before = app.skills.get('weekly-report');
   pkg(
     'weekly-report',
@@ -227,7 +227,7 @@ test('an update shows the diff and only what is new, keeps who has it, and keeps
   assert.ok(after.audit.some((e) => e.action === 'skill.restored' && e.details.from === ok.data.version && e.details.to === before.version));
 });
 
-test('an installed skill changed here is "changed"; a skill not from the package blocks it', async () => {
+test('an installed skill changed here is "changed"; a skill not from the package blocks it', { skip: process.platform !== 'linux' && 'Requires Linux directory handles for confined file operations' }, async () => {
   const current = app.skills.get('weekly-report');
   pkg('weekly-report', md('weekly-report', 'Write the weekly report.', '1. Read https://status.example.com/feed.\n2. Send it with `botons ask`.', 'version: 1.0.0\nallowed-tools: Bash(git:*)\nlicense: MIT\n'));
   assert.equal((await review('weekly-report')).state, 'current');
@@ -246,7 +246,7 @@ test('an installed skill changed here is "changed"; a skill not from the package
   assert.equal(app.skills.get('standup').body, 'Steps.');
 });
 
-test('a package is current only while everything reviewed of it is: its label, fields and other files count, not just its text', async () => {
+test('a package is current only while everything reviewed of it is: its label, fields and other files count, not just its text', { skip: process.platform !== 'linux' && 'Requires Linux directory handles for confined file operations' }, async () => {
   const STEPS = '1. List what shipped.\n2. Write it up.';
   const notes = (extra: string, body = STEPS) => pkg('release-notes', md('release-notes', 'Write the release notes.', body, extra));
   notes('version: 1\nlicense: MIT\n');
@@ -307,7 +307,7 @@ test('a package is current only while everything reviewed of it is: its label, f
   assert.equal(existsSync(RAN), false);
 });
 
-test('metadata review binds full values and prototype-named fields', async () => {
+test('metadata review binds full values and prototype-named fields', { skip: process.platform !== 'linux' && 'Requires Linux directory handles for confined file operations' }, async () => {
   const name = 'metadata-review';
   const write = (extra: string) => pkg(name, md(name, 'Review the package.', 'Read the notes.', extra));
   write(`compatibility: ${'x'.repeat(400)}20907\n`);
@@ -332,7 +332,7 @@ test('metadata review binds full values and prototype-named fields', async () =>
   assert.ok('problem' in parsed, 'duplicate prototype-named keys are rejected too');
 });
 
-test('who can use a skill is set exactly, refused when stale, and audited per Boton', async () => {
+test('who can use a skill is set exactly, refused when stale, and audited per Boton', { skip: process.platform !== 'linux' && 'Requires Linux directory handles for confined file operations' }, async () => {
   const get = async () => (await call<SkillDetails>('GET', '/api/skills/standup/details')).data.access;
   let a: SkillAccess = await get();
   // standup came after Stuart lost "every skill": only nobody has it now.
@@ -361,7 +361,7 @@ test('who can use a skill is set exactly, refused when stale, and audited per Bo
   assert.ok([401, 403].includes((await call('PUT', '/api/skills/standup/access', { botIds: [kevin.id], expected: [kevin.id] }, boton)).status));
 });
 
-test('a skill turned off reaches no Boton and no routine until it is turned on', async () => {
+test('a skill turned off reaches no Boton and no routine until it is turned on', { skip: process.platform !== 'linux' && 'Requires Linux directory handles for confined file operations' }, async () => {
   const k = bot(kevin.id);
   assert.ok(app.skills.enabledFor(k, 'standup'));
   const off = await call<Skill>('PUT', '/api/skills/standup/enabled', { enabled: false });
@@ -378,7 +378,7 @@ test('a skill turned off reaches no Boton and no routine until it is turned on',
   assert.deepEqual(actions.filter((a) => a.startsWith('skill.')), ['skill.enabled', 'skill.disabled']);
 });
 
-test('a skill keeps its last few texts, and deleting it drops them', async () => {
+test('a skill keeps its last few texts, and deleting it drops them', { skip: process.platform !== 'linux' && 'Requires Linux directory handles for confined file operations' }, async () => {
   for (let i = 0; i < SKILL_HISTORY_KEEP + 3; i++) await call('PATCH', '/api/skills/standup', { body: `Steps ${i}.` });
   // Saving the same text again keeps nothing new.
   await call('PATCH', '/api/skills/standup', { body: `Steps ${SKILL_HISTORY_KEEP + 2}.` });
@@ -389,7 +389,7 @@ test('a skill keeps its last few texts, and deleting it drops them', async () =>
   assert.equal(app.store.db.prepare("select count(*) as n from skill_history where name = 'standup'").get()!.n, 0);
 });
 
-test('a folder swapped for a link while it is read, or the packages folder replaced, reads nothing outside it', () => {
+test('a folder swapped for a link while it is read, or the packages folder replaced, reads nothing outside it', { skip: process.platform !== 'linux' && 'Requires Linux directory handles for confined file operations' }, () => {
   const base = tempDir('botons-skill-swap-');
   const root = join(base, 'packages');
   const outside = join(base, 'outside');
@@ -468,4 +468,16 @@ test('SKILL.md frontmatter: quoted and folded values, comments; the diff keeps c
     { op: 'same', text: 'c' },
   ]);
   assert.deepEqual(lineDiff('', 'a'), [{ op: 'add', text: 'a' }]);
+});
+
+test('without Linux directory handles packages expose no text and cannot install', { skip: process.platform === 'linux' && 'Covers hosts without Linux directory handles' }, async () => {
+  const name = 'macos-refused';
+  pkg(name, md(name, 'Fixture package.', 'DO-NOT-READ-MARKER'));
+  const entry = (await list()).packages.find(p => p.folder === name)!;
+  assert.equal(entry.state, 'invalid');
+  assert.match(entry.problems.join(' '), /needs Linux/);
+  assert.doesNotMatch(JSON.stringify(entry), /DO-NOT-READ-MARKER/);
+  const result = await call('POST', `/api/skill-packages/${name}/install`, { version: 'x', fingerprint: 'x', current: null, accept: [], botIds: [], expected: [] });
+  assert.equal(result.status, 400);
+  assert.equal((await call('GET', `/api/skills/${name}`)).status, 404);
 });

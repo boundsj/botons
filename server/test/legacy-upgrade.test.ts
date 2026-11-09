@@ -349,7 +349,7 @@ test('the API brains\' shell runs the CLI by any of its names, as one simple com
   assert.equal(botonArgv('botonsx memory list'), null);
 });
 
-test('service:install refuses while the service runs under a deprecated unit, naming the command that moves it; with --name it writes that unit', () => {
+test('service:install refuses while the service runs under a deprecated unit, naming the command that moves it; with --name it writes that unit', { skip: process.platform !== 'linux' ? 'systemd service migration needs Linux' : false }, () => {
   const t = tempDir('botons-service-legacy-');
   const units = join(t, 'units');
   mkdirSync(units, { recursive: true });
@@ -361,7 +361,7 @@ test('service:install refuses while the service runs under a deprecated unit, na
   assert.ok(existsSync(join(units, 'botons.service')));
 });
 
-for (const mode of ['upgrade', 'interrupted', 'repair', 'failed upgrade'] as const) test(`the installer moves an install it made under the earlier names (${mode}): units, release root, data folder and env file; then it upgrades (and rollback puts its record back), repairs it in place, or puts the earlier unit and commands back when the upgrade fails`, async () => {
+for (const mode of ['upgrade', 'interrupted', 'repair', 'failed upgrade'] as const) test(`the installer moves an install it made under the earlier names (${mode}): units, release root, data folder and env file; then it upgrades (and rollback puts its record back), repairs it in place, or puts the earlier unit and commands back when the upgrade fails`, { skip: process.platform !== 'linux' ? 'systemd installer migration needs Linux' : false }, async () => {
   const interrupted = mode === 'interrupted';
   const { createServer } = await import('node:http');
   const { cpSync, rmSync } = await import('node:fs');

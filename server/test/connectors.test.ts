@@ -236,7 +236,7 @@ test('codexMcp: agent variables go in env, a clash or an unsupported server is l
   assert.deepEqual(args.slice(-2), ['-c', 'shell_environment_policy.exclude=["TOKEN"]']);
 });
 
-test('a webhook run gets no connectors, and its context block says they are off; other runs and chat keep them', async (t) => {
+test('a webhook run gets no connectors, and its context block says they are off; other runs and chat keep them', { skip: process.platform !== 'linux' && 'Requires the Linux Workspace sandbox and directory handles' }, async (t) => {
   const logs = captureLogs();
   t.after(logs.restore);
   for (const access of ['workspace', 'host'] as const) {
@@ -263,7 +263,7 @@ test('a webhook run gets no connectors, and its context block says they are off;
   assert.equal(c.env.GITHUB_PERSONAL_ACCESS_TOKEN, undefined);
 });
 
-test("a test run of a routine with a webhook gets no connectors, like its webhook runs; one of a routine without a webhook keeps them", async () => {
+test("a test run of a routine with a webhook gets no connectors, like its webhook runs; one of a routine without a webhook keeps them", { skip: process.platform !== 'linux' && 'Requires the Linux Workspace sandbox and directory handles' }, async () => {
   const bot = await newBot('claude-cli', { access: 'host', connections: ['lib:github'] });
   const hooked = await hookedRoutine(bot, 'Hooked');
   const tested = await callOf(claude, () => runRoutine(hooked, 'test'));

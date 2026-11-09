@@ -325,7 +325,9 @@ test('the web app pairs once a paired device approves its code, and gets its tok
   const bot = await s.newBot('Keyed');
   writeFileSync(join(bot.workspace, 'pic.txt'), 'hello');
   const file = (key: string) => fetch(`${base}/api/bots/${bot.id}/files/raw?path=pic.txt&key=${encodeURIComponent(key)}`);
-  assert.equal(await (await file(keys.files)).text(), 'hello');
+  const opened = await file(keys.files);
+  if (process.platform === 'linux') assert.equal(await opened.text(), 'hello');
+  else { assert.equal(opened.status, 501); await opened.text(); }
   assert.equal((await file(keys.events)).status, 401, 'the events key does not read files');
   assert.equal((await fetch(`${base}/api/events?key=${encodeURIComponent(keys.files)}`)).status, 401, 'the files key does not open the stream');
   assert.equal((await fetch(`${base}/api/bots?key=${encodeURIComponent(keys.files)}`)).status, 401, 'nor anything else');
