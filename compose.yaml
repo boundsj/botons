@@ -1,0 +1,53 @@
+# Botons with Docker Compose: see docs/DOCKER.md. Two files, both optional and never committed:
+#   .env          compose's own settings (address, port, domain, Tailscale key, build args); copy .env.example.
+#                 Only the values named below reach a container, so the Tailscale key never reaches the server.
+#   botons.env    the server's BOTONS_* settings (see "Configuration" in the README); copy botons.env.example.
+# By default the app is published on 127.0.0.1 only. For HTTPS add one of the overlays:
+#   docker compose -f compose.yaml -f docker/compose.tailscale.yaml up -d   (Tailscale sidecar, tailnet only)
+#   docker compose -f compose.yaml -f docker/compose.caddy.yaml up -d       (Caddy, a public domain)
+name: botons
+
+services:
+  botons:
+    build:
+      context: .
+      args:
+        INSTALL_CLAUDE: ${BOTONS_INSTALL_CLAUDE:-1}
+        INSTALL_CODEX: ${BOTONS_INSTALL_CODEX:-1}
+        CLAUDE_CODE_VERSION: ${BOTONS_CLAUDE_CODE_VERSION:-latest}
+        CODEX_VERSION: ${BOTONS_CODEX_VERSION:-latest}
+        BUILD_SHA: ${BOTONS_BUILD_SHA:-}
+    image: botons:local
+    # The container's host name is part of what each agent session was started with: it stays.
+    hostname: botons
+    restart: unless-stopped
+    env_file:
+      - path: botons.env
+        required: false
+    environment:
+      # The address devices open; links in pushes and webhook URLs start with it.
+      BOTONS_PUBLIC_URL: ${BOTONS_PUBLIC_URL:-http://localhost:7777}
+      # The container's port is fixed; BOTONS_PUBLISH_PORT picks the one on this machine.
+      BOTONS_PORT: "7777"
+    ports:
+      # BOTONS_BIND=127.0.0.1 (the default): only this machine. Anything else exposes plain HTTP to that network.
+      - "${BOTONS_BIND:-127.0.0.1}:${BOTONS_PUBLISH_PORT:-7777}:7777"
+    volumes:
+      # BOTONS_HOME: the database, workspaces, shared folder and backups.
+      - data:/data
+      # The server user's home: the claude and codex logins and settings, git config.
+      - home:/home/node
+    security_opt:
+      # Docker's default seccomp profile plus one thing: user, PID and network namespaces, which Chromium's own sandbox
+      # needs for the managed browser. No mount, UTS, IPC or cgroup namespaces, no mount syscall, no capability
+      # added. See "Browser" in docs/DOCKER.md.
+      - seccomp=docker/seccomp-browser.json
+      # Nothing in the container gains privileges through a setuid or file-capability binary.
+      - no-new-privileges:true
+    # Running turns get BOTONS_DRAIN_MS (default 2m) to finish on stop; keep this above it.
+    stop_grace_period: 150s
+    # The data folder can't be shared by two servers; the server refuses to start if it is.
+
+volumes:
+  data:
+  home:

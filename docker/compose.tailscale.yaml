@@ -1,0 +1,35 @@
+# Overlay: reach Botons over HTTPS on your tailnet only, through a Tailscale sidecar. See docs/DOCKER.md.
+#   docker compose -f compose.yaml -f docker/compose.tailscale.yaml up -d
+# Needs TS_AUTHKEY in .env: an auth key the owner creates in the Tailscale admin console. The sidecar joins the
+# tailnet as TS_HOSTNAME and serves https://<TS_HOSTNAME>.<your tailnet>.ts.net to the app; nothing is published on
+# this machine's own interfaces.
+services:
+  tailscale:
+    image: tailscale/tailscale:stable
+    # The tailnet name devices, pushes, webhooks and OAuth sign-ins use: keep it once they use it.
+    hostname: ${TS_HOSTNAME:-botons}
+    restart: unless-stopped
+    environment:
+      TS_AUTHKEY: ${TS_AUTHKEY:?set TS_AUTHKEY in .env (an auth key the owner creates in the Tailscale admin console)}
+      TS_HOSTNAME: ${TS_HOSTNAME:-botons}
+      TS_STATE_DIR: /var/lib/tailscale
+      TS_SERVE_CONFIG: /config/serve.json
+      # No /dev/net/tun or extra capabilities: userspace networking is enough to serve the app.
+      TS_USERSPACE: "true"
+    volumes:
+      - tailscale:/var/lib/tailscale
+      - ./docker/tailscale-serve.json:/config/serve.json:ro
+
+  botons:
+    # Share the sidecar's network: the app is reached only through it, and the sidecar reaches it on 127.0.0.1.
+    network_mode: service:tailscale
+    # Docker refuses a hostname or published ports on a container that shares another's network.
+    hostname: !reset null
+    ports: !reset []
+    depends_on:
+      - tailscale
+    environment:
+      BOTONS_PUBLIC_URL: ${BOTONS_PUBLIC_URL:?set BOTONS_PUBLIC_URL in .env to https://<TS_HOSTNAME>.<your tailnet>.ts.net}
+
+volumes:
+  tailscale:

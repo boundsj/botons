@@ -1,0 +1,69 @@
+{
+  "about": "Plain reply in a new thread.",
+  "recorded": "codex-cli 0.166.0",
+  "argv": [
+    "codex",
+    "exec",
+    "--json",
+    "--skip-git-repo-check",
+    "--ignore-user-config",
+    "--ignore-rules",
+    "--disable",
+    "plugins",
+    "--disable",
+    "apps",
+    "--disable",
+    "remote_plugin",
+    "--disable",
+    "tool_suggest",
+    "-c",
+    "skills.include_instructions=false",
+    "-c",
+    "skills.bundled.enabled=false",
+    "-c",
+    "default_permissions=\"boton\"",
+    "-c",
+    "permissions.boton.extends=\":workspace\"",
+    "-c",
+    "permissions.boton.network.enabled=true",
+    "-c",
+    "permissions.boton.filesystem={\"~/.ssh\"=\"none\"}",
+    "-c",
+    "approval_policy=\"never\"",
+    "-c",
+    "developer_instructions=\"You are a test Boton.\"",
+    "-C",
+    "/tmp/boton-workspace",
+    "-"
+  ],
+  "stdin": "Reply with the single word: pong",
+  "exitCode": 0,
+  "stderr": "",
+  "stdout": [
+    {
+      "type": "thread.started",
+      "thread_id": "01a1aa57-822e-77b2-b248-455af0f06ea8"
+    },
+    {
+      "type": "turn.started"
+    },
+    {
+      "type": "item.completed",
+      "item": {
+        "id": "item_0",
+        "type": "agent_message",
+        "text": "pong"
+      }
+    },
+    {
+      "type": "turn.completed",
+      "usage": {
+        "input_tokens": 13391,
+        "cached_input_tokens": 12032,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 5,
+        "reasoning_output_tokens": 0
+      }
+    }
+  ]
+}

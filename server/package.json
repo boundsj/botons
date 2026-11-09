@@ -1,0 +1,10 @@
+{
+  "name": "@botons/server",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "dependencies": {
+    "croner": "^11.0.0",
+    "playwright-core": "^1.65.0"
+  }
+}

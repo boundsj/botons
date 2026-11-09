@@ -1,0 +1,13 @@
+{
+  "about": "`codex login status` while signed in: the status goes to stderr, exit 0.",
+  "recorded": "codex-cli 0.166.0",
+  "argv": [
+    "codex",
+    "login",
+    "status"
+  ],
+  "stdin": "",
+  "exitCode": 0,
+  "stderr": "Logged in using ChatGPT\n",
+  "stdout": []
+}

@@ -1,0 +1,31 @@
+#!/bin/sh
+# The image's entry point and its admin commands: `botons serve` (the default), and inside a running container
+# `docker compose exec botons botons <command>`.
+set -e
+# The image's settings, unless the owner set one (in botons.env).
+# In the container the server listens on every interface; compose.yaml publishes the port on 127.0.0.1 only unless
+# you say otherwise. Tailscale, if used, runs outside this container (docs/DOCKER.md).
+: "${BOTONS_HOME:=/data}"
+: "${BOTONS_HOST:=0.0.0.0}"
+: "${BOTONS_NO_TAILSCALE:=1}"
+: "${BOTONS_CONTAINER:=1}"
+: "${BOTONS_BROWSER_PATH:=/usr/bin/chromium}"
+export BOTONS_HOME BOTONS_HOST BOTONS_NO_TAILSCALE BOTONS_CONTAINER BOTONS_BROWSER_PATH
+cd /app
+cmd="${1:-serve}"
+[ $# -gt 0 ] && shift
+case "$cmd" in
+  --version) exec node --input-type=module -e 'import { VERSION } from "./shared/app-version.mjs"; console.log(VERSION)' ;;
+  serve) exec node server/src/index.ts "$@" ;;
+  login) exec node scripts/login.ts "$@" ;;
+  doctor) exec node scripts/doctor.ts "$@" ;;
+  pair) exec node scripts/pair.ts "$@" ;;
+  backup) exec node scripts/backup.ts "$@" ;;
+  restore) exec node scripts/restore.ts "$@" ;;
+  check-browser) exec node scripts/check-browser.ts "$@" ;;
+  *)
+    echo "Usage: botons [serve | doctor | pair | backup | restore | check-browser] [options]" >&2
+    echo "  e.g. docker compose exec botons botons pair --approve ABCD-EFGH" >&2
+    exit 2
+    ;;
+esac

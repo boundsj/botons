@@ -1,0 +1,7 @@
+FROM node:24-trixie
+RUN apt-get update && apt-get install -y --no-install-recommends bubblewrap util-linux && rm -rf /var/lib/apt/lists/*
+RUN test "$(bwrap --version)" = 'bubblewrap 0.12.0'
+RUN npm install --prefix /opt/codex --no-audit --no-fund @openai/codex@0.167.0 && mkdir -p /opt/codex/bin && ln -s /opt/codex/node_modules/.bin/codex /opt/codex/bin/codex
+WORKDIR /work
+COPY . .
+CMD ["sh", "scripts/fixtures/codex-proc-container.sh"]

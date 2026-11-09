@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
+    <meta name="theme-color" content="#0b0f19" />
+    <meta name="color-scheme" content="light dark" />
+    <script>// Runs synchronously in the head, before styles or React, and owns only DOM paints.
+(() => {
+  const key = 'botons.theme';
+  // The same choice under its earlier key, taken over once (the build fills it in from shared/legacy-names.mjs).
+  const earlier = '__EARLIER_THEME_KEY__';
+  const valid = value => ['system', 'light', 'dark'].includes(value) ? value : 'system';
+  const media = matchMedia('(prefers-color-scheme: dark)');
+  let preference = 'system';
+  try {
+    let saved = localStorage.getItem(key);
+    if (saved === null && earlier && !earlier.startsWith('__')) {
+      saved = localStorage.getItem(earlier);
+      if (saved !== null) { localStorage.setItem(key, saved); localStorage.removeItem(earlier); }
+    }
+    preference = valid(saved);
+  } catch { /* Storage can be blocked. */ }
+  const apply = () => {
+    const theme = preference === 'system' ? (media.matches ? 'dark' : 'light') : preference;
+    document.documentElement.dataset.theme = theme;
+    document.documentElement.style.colorScheme = theme;
+    document.querySelector('meta[name="color-scheme"]').content = theme;
+    document.querySelector('meta[name="theme-color"]').content = theme === 'dark' ? '#0b0f19' : '#ffffff';
+  };
+  window.botonsTheme = {
+    get: () => preference,
+    set: value => {
+      preference = valid(value);
+      try { localStorage.setItem(key, preference); } catch { /* Keep working for this page. */ }
+      apply();
+      dispatchEvent(new Event('botons-theme'));
+    },
+  };
+  media.addEventListener('change', apply);
+  addEventListener('storage', event => {
+    if (event.key === key || event.key === null) {
+      preference = valid(event.newValue);
+      apply();
+      dispatchEvent(new Event('botons-theme'));
+    }
+  });
+  apply();
+})();
+</script>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <title>Botons</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

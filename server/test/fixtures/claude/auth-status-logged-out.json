@@ -1,0 +1,22 @@
+{
+  "about": "`claude auth status` while signed out: loggedIn false, exit 1. Recorded with an empty CLAUDE_CONFIG_DIR; its path replaced with the default one.",
+  "recorded": "claude 2.1.316",
+  "argv": [
+    "claude",
+    "auth",
+    "status"
+  ],
+  "stdin": "",
+  "exitCode": 1,
+  "stderr": "",
+  "stdout": [
+    "{",
+    "  \"loggedIn\": false,",
+    "  \"authMethod\": \"none\",",
+    "  \"apiProvider\": \"firstParty\",",
+    "  \"analyticsDisabled\": false,",
+    "  \"projectsDirectory\": \"/home/you/.claude/projects\",",
+    "  \"configDirectory\": \"/home/you/.claude\"",
+    "}"
+  ]
+}

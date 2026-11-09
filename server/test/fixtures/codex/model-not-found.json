@@ -1,0 +1,79 @@
+{
+  "about": "Resumed thread with -m set to a model that does not exist.",
+  "recorded": "codex-cli 0.166.0",
+  "argv": [
+    "codex",
+    "exec",
+    "resume",
+    "--json",
+    "--skip-git-repo-check",
+    "--ignore-user-config",
+    "--ignore-rules",
+    "--disable",
+    "plugins",
+    "--disable",
+    "apps",
+    "--disable",
+    "remote_plugin",
+    "--disable",
+    "tool_suggest",
+    "-c",
+    "skills.include_instructions=false",
+    "-c",
+    "skills.bundled.enabled=false",
+    "-c",
+    "default_permissions=\"boton\"",
+    "-c",
+    "permissions.boton.extends=\":workspace\"",
+    "-c",
+    "permissions.boton.network.enabled=true",
+    "-c",
+    "permissions.boton.filesystem={\"~/.ssh\"=\"none\"}",
+    "-c",
+    "approval_policy=\"never\"",
+    "-c",
+    "developer_instructions=\"You are a test Boton.\"",
+    "-m",
+    "gpt-nonexistent-model-9",
+    "01a1aa57-822e-77b2-b248-455af0f06ea8",
+    "-"
+  ],
+  "stdin": "Reply with the single word: pong",
+  "exitCode": 1,
+  "stderr": "",
+  "stdout": [
+    {
+      "type": "thread.started",
+      "thread_id": "01a1aa57-822e-77b2-b248-455af0f06ea8"
+    },
+    {
+      "type": "item.completed",
+      "item": {
+        "id": "item_0",
+        "type": "error",
+        "message": "This session was recorded with model `gpt-6.1-sol` but is resuming with `gpt-nonexistent-model-9`. Consider switching back to `gpt-6.1-sol` as it may affect Codex performance."
+      }
+    },
+    {
+      "type": "item.completed",
+      "item": {
+        "id": "item_1",
+        "type": "error",
+        "message": "Model metadata for `gpt-nonexistent-model-9` not found. Defaulting to fallback metadata; this can degrade performance and cause issues."
+      }
+    },
+    {
+      "type": "turn.started"
+    },
+    {
+      "type": "error",
+      "message": "The 'gpt-nonexistent-model-9' model is not supported when using Codex with a ChatGPT account."
+    },
+    {
+      "type": "turn.failed",
+      "error": {
+        "message": "The 'gpt-nonexistent-model-9' model is not supported when using Codex with a ChatGPT account."
+      }
+    }
+  ]
+}

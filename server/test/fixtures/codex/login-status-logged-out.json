@@ -1,0 +1,13 @@
+{
+  "about": "`codex login status` while signed out: \"Not logged in\" on stderr, exit 1. Recorded with an empty CODEX_HOME (its warning about helper binaries in a temp folder left out).",
+  "recorded": "codex-cli 0.166.0",
+  "argv": [
+    "codex",
+    "login",
+    "status"
+  ],
+  "stdin": "",
+  "exitCode": 1,
+  "stderr": "Not logged in\n",
+  "stdout": []
+}

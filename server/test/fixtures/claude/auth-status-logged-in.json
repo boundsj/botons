@@ -1,0 +1,26 @@
+{
+  "about": "`claude auth status` while signed in (it prints JSON by default). Account details, subscription type and home folder replaced with placeholders.",
+  "recorded": "claude 2.1.316",
+  "argv": [
+    "claude",
+    "auth",
+    "status"
+  ],
+  "stdin": "",
+  "exitCode": 0,
+  "stderr": "",
+  "stdout": [
+    "{",
+    "  \"loggedIn\": true,",
+    "  \"authMethod\": \"claude.ai\",",
+    "  \"apiProvider\": \"firstParty\",",
+    "  \"analyticsDisabled\": false,",
+    "  \"projectsDirectory\": \"/home/you/.claude/projects\",",
+    "  \"configDirectory\": \"/home/you/.claude\",",
+    "  \"email\": \"you@example.com\",",
+    "  \"orgId\": \"00000000-0000-0000-0000-000000000000\",",
+    "  \"orgName\": \"you@example.com's Organization\",",
+    "  \"subscriptionType\": \"pro\"",
+    "}"
+  ]
+}

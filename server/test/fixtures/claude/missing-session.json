@@ -1,0 +1,97 @@
+{
+  "about": "--resume with a session id Claude does not have.",
+  "recorded": "claude 2.1.316 (--model haiku)",
+  "argv": [
+    "claude",
+    "-p",
+    "--output-format",
+    "stream-json",
+    "--verbose",
+    "--append-system-prompt",
+    "You are a test Boton.",
+    "--system-prompt-snapshot",
+    "off",
+    "--setting-sources",
+    "project,local",
+    "--strict-mcp-config",
+    "--mcp-config",
+    "{\"mcpServers\":{}}",
+    "--disable-slash-commands",
+    "--disallowedTools",
+    "CronCreate",
+    "CronDelete",
+    "CronList",
+    "RemoteTrigger",
+    "PushNotification",
+    "SendMessage",
+    "ScheduleWakeup",
+    "ListAgents",
+    "SendToProject",
+    "SendToProjectContext",
+    "DesignSync",
+    "ReportFindings",
+    "Workflow",
+    "EnterWorktree",
+    "ExitWorktree",
+    "--settings",
+    "{\"autoMemoryEnabled\":false,\"disableAllHooks\":true,\"sandbox\":{\"enabled\":true,\"autoAllowBashIfSandboxed\":true,\"allowUnsandboxedCommands\":false,\"excludedCommands\":[\"boton\",\"Boton *\"]}}",
+    "--permission-mode",
+    "acceptEdits",
+    "--permission-prompts",
+    "none",
+    "--allowedTools",
+    "Bash(botons:*)",
+    "Bash(botons *)",
+    "WebSearch",
+    "WebFetch",
+    "--model",
+    "haiku",
+    "--resume",
+    "3f0c2a8e-5b7d-4c1e-9a6f-2d8b4e1c7a90"
+  ],
+  "stdin": "Reply with the single word: pong",
+  "exitCode": 1,
+  "stderr": "No conversation found with session ID: 3f0c2a8e-5b7d-4c1e-9a6f-2d8b4e1c7a90\n",
+  "stdout": [
+    {
+      "type": "result",
+      "subtype": "error_during_execution",
+      "duration_ms": 0,
+      "duration_api_ms": 0,
+      "is_error": true,
+      "num_turns": 0,
+      "stop_reason": null,
+      "session_id": "3f0c2a8e-5b7d-4c1e-9a6f-2d8b4e1c7a90",
+      "total_cost_usd": 0,
+      "usage": {
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 0,
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "service_tier": "standard",
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "inference_geo": "",
+        "iterations": [],
+        "speed": "standard",
+        "fallback_credit": null
+      },
+      "modelUsage": {},
+      "permission_denials": [],
+      "uuid": "08d34334-7055-4a16-8344-2b6dd16fe5fe",
+      "errors": [
+        "No conversation found with session ID: 3f0c2a8e-5b7d-4c1e-9a6f-2d8b4e1c7a90"
+      ],
+      "result_index": 0
+    }
+  ]
+}

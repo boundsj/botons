@@ -1,0 +1,22 @@
+node_modules/
+web/dist/
+.botons-dev/
+*.log
+# Never commit local notes, personal agent settings, secrets or a database.
+*.local.md
+.claude/settings.local.json
+.mcp.json
+.env
+.env.*
+!.env.example
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+*.env
+
+release-package/
+
+# Local node:test timing artifacts.
+test-timings.json

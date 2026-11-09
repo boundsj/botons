@@ -1,0 +1,36 @@
+# Installed by `npm run service:install`, which fills in the Node binary, the
+# app folder and the environment file. See "Run it as a service" in the README.
+[Unit]
+Description=@DESCRIPTION@
+# Restart after a crash, but give up (and leave it failed) if it keeps failing:
+# more than 10 starts in 5 minutes.
+StartLimitIntervalSec=300
+StartLimitBurst=10
+
+[Service]
+Type=exec
+WorkingDirectory=@APP@
+# PATH (node, claude, codex and the tools Botons use), BOTONS_CLAUDE_BIN,
+# BOTONS_CODEX_BIN and any other BOTONS_* settings. The backup unit reads the
+# same file.
+EnvironmentFile=@ENV_FILE@
+# Node runs the TypeScript directly: no npm, no build step at start.
+ExecStart="@NODE@" "@APP@/server/src/index.ts"
+Restart=on-failure
+RestartSec=5
+# 78 (EX_CONFIG): a bad setting, or a database this code cannot open.
+# Restarting cannot fix either, so systemd leaves the unit failed instead.
+RestartPreventExitStatus=78
+# Stopping (and restarting) sends SIGTERM to the server alone. It takes no new
+# work, gives running turns up to BOTONS_DRAIN_MS (default 2m) to finish, then
+# stops its agent processes itself; work that was cut off or still queued runs
+# after the next start. Whatever is still in the unit's cgroup after the server
+# exits, or after TimeoutStopSec (set above the drain budget), gets SIGKILL.
+KillMode=mixed
+TimeoutStopSec=@STOP_TIMEOUT@
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=@NAME@
+
+[Install]
+WantedBy=default.target

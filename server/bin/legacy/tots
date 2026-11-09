@@ -1,0 +1,4 @@
+#!/bin/sh
+# LEGACY NAMES (see shared/legacy-names.mjs): a deprecated name of `botons`, on a turn's PATH for one release so
+# agents' saved scripts and instructions keep working. It goes with that module.
+exec "$(cd "$(dirname "$0")" && pwd)/../botons" "$@"

@@ -1,0 +1,31 @@
+# Overlay: serve Botons on a public domain over HTTPS, with Caddy and a Let's Encrypt certificate. See docs/DOCKER.md.
+#   docker compose -f compose.yaml -f docker/compose.caddy.yaml up -d
+# Needs BOTONS_DOMAIN and BOTONS_PUBLIC_URL=https://<BOTONS_DOMAIN> in .env, the domain's DNS pointing at this
+# machine, and ports 80 and 443 open to the internet. That makes the app public: every device still has to pair,
+# but anyone can reach the sign-in page. Prefer the Tailscale overlay unless you need it.
+services:
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      BOTONS_DOMAIN: ${BOTONS_DOMAIN:?set BOTONS_DOMAIN in .env}
+    volumes:
+      - ./docker/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - botons
+
+  botons:
+    # Only Caddy reaches the app.
+    ports: !reset []
+    environment:
+      BOTONS_PUBLIC_URL: ${BOTONS_PUBLIC_URL:?set BOTONS_PUBLIC_URL in .env to https://<BOTONS_DOMAIN>}
+
+volumes:
+  caddy-data:
+  caddy-config:

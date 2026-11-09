@@ -1,0 +1,63 @@
+{
+  "about": "Synthesized, not recorded (a real usage limit can't be hit on purpose): the no-login recording with its reconnect errors removed and the failure swapped for codex-cli 0.166.0's usage-limit message (its \"or try again at\" time is local, \"%-I:%M %p\" when it is today).",
+  "recorded": "codex-cli 0.166.0 (synthesized from codex/not-logged-in)",
+  "argv": [
+    "codex",
+    "exec",
+    "--json",
+    "--skip-git-repo-check",
+    "--ignore-user-config",
+    "--ignore-rules",
+    "--disable",
+    "plugins",
+    "--disable",
+    "remote_plugin",
+    "--disable",
+    "apps",
+    "--disable",
+    "tool_suggest",
+    "--disable",
+    "hooks",
+    "-c",
+    "skills.include_instructions=false",
+    "-c",
+    "skills.bundled.enabled=false",
+    "-c",
+    "default_permissions=\"boton\"",
+    "-c",
+    "permissions.boton.extends=\":workspace\"",
+    "-c",
+    "permissions.boton.network.enabled=true",
+    "-c",
+    "permissions.boton.filesystem={}",
+    "-c",
+    "approval_policy=\"never\"",
+    "-c",
+    "developer_instructions=\"You are a test Boton.\"",
+    "-C",
+    "/tmp/boton-workspace",
+    "-"
+  ],
+  "stdin": "Reply with the single word: pong",
+  "exitCode": 1,
+  "stderr": "",
+  "stdout": [
+    {
+      "type": "thread.started",
+      "thread_id": "01a1aab5-1956-74b2-af00-f20981d4aeff"
+    },
+    {
+      "type": "turn.started"
+    },
+    {
+      "type": "error",
+      "message": "You've hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), visit https://chatgpt.com/settings/usage to purchase more credits or try again at 3:05 PM."
+    },
+    {
+      "type": "turn.failed",
+      "error": {
+        "message": "You've hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), visit https://chatgpt.com/settings/usage to purchase more credits or try again at 3:05 PM."
+      }
+    }
+  ]
+}

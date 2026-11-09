@@ -1,0 +1,105 @@
+{
+  "about": "New thread whose model connection always fails (recorded through a local proxy that refuses every CONNECT): reconnect errors, then turn.failed.",
+  "recorded": "codex-cli 0.166.0",
+  "argv": [
+    "codex",
+    "exec",
+    "--json",
+    "--skip-git-repo-check",
+    "--ignore-user-config",
+    "--ignore-rules",
+    "--disable",
+    "plugins",
+    "--disable",
+    "apps",
+    "--disable",
+    "remote_plugin",
+    "--disable",
+    "tool_suggest",
+    "-c",
+    "skills.include_instructions=false",
+    "-c",
+    "skills.bundled.enabled=false",
+    "-c",
+    "default_permissions=\"boton\"",
+    "-c",
+    "permissions.boton.extends=\":workspace\"",
+    "-c",
+    "permissions.boton.network.enabled=true",
+    "-c",
+    "permissions.boton.filesystem={\"~/.ssh\"=\"none\"}",
+    "-c",
+    "approval_policy=\"never\"",
+    "-c",
+    "developer_instructions=\"You are a test Boton.\"",
+    "-C",
+    "/tmp/boton-workspace",
+    "-"
+  ],
+  "stdin": "Reply with the single word: pong",
+  "exitCode": 1,
+  "stderr": "2026-11-05T06:14:14.858496Z ERROR codex_models_manager::manager: failed to refresh available models: Connection failed: error sending request\n",
+  "stdout": [
+    {
+      "type": "thread.started",
+      "thread_id": "01a1aa57-eefe-79a3-bc44-2b1edd611d43"
+    },
+    {
+      "type": "turn.started"
+    },
+    {
+      "type": "error",
+      "message": "Reconnecting... 2/5 (workspace routing discovery failed)"
+    },
+    {
+      "type": "error",
+      "message": "Reconnecting... 3/5 (workspace routing discovery failed)"
+    },
+    {
+      "type": "error",
+      "message": "Reconnecting... 4/5 (workspace routing discovery failed)"
+    },
+    {
+      "type": "error",
+      "message": "Reconnecting... 5/5 (workspace routing discovery failed)"
+    },
+    {
+      "type": "item.completed",
+      "item": {
+        "id": "item_0",
+        "type": "error",
+        "message": "Falling back from WebSockets to HTTPS transport. workspace routing discovery failed"
+      }
+    },
+    {
+      "type": "error",
+      "message": "Reconnecting... 1/5 (workspace routing discovery failed)"
+    },
+    {
+      "type": "error",
+      "message": "Reconnecting... 2/5 (workspace routing discovery failed)"
+    },
+    {
+      "type": "error",
+      "message": "Reconnecting... 3/5 (workspace routing discovery failed)"
+    },
+    {
+      "type": "error",
+      "message": "Reconnecting... 4/5 (workspace routing discovery failed)"
+    },
+    {
+      "type": "error",
+      "message": "Reconnecting... 5/5 (workspace routing discovery failed)"
+    },
+    {
+      "type": "error",
+      "message": "workspace routing discovery failed"
+    },
+    {
+      "type": "turn.failed",
+      "error": {
+        "message": "workspace routing discovery failed"
+      }
+    }
+  ]
+}

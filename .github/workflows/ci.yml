@@ -1,0 +1,188 @@
+name: CI
+
+# Pull requests get one short required job (Node 24). The full tier (every test on Node 24 and 26, real
+# browsers, recovery, Docker, the Debian installer, the Codex helper) runs weekly, by hand, and on pull
+# requests labelled full-ci; `npm run deploy` runs the full suite before it builds a release.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled]
+  schedule:
+    - cron: '23 8 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: ${{ github.workflow_ref }}
+  cancel-in-progress: true
+
+jobs:
+  fast:
+    # The required check: keep its name. It always runs and reports, so a docs-only pull request
+    # passes it instead of leaving it pending (what paths-ignore would do).
+    name: Node 24
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      # The runner's own Node: nothing to install yet.
+      - id: scope
+        run: node scripts/ci-scope.mjs
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+      - if: steps.scope.outputs.code == 'true'
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - if: steps.scope.outputs.code == 'true'
+        run: npm ci --no-audit --no-fund
+      - if: steps.scope.outputs.code == 'true'
+        run: npm run typecheck
+      - if: steps.scope.outputs.code == 'true'
+        run: npm test
+
+  check:
+    if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci')
+    name: Full Node ${{ matrix.node }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [24, 26]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run typecheck
+      # The managed browser in real Chromium (ubuntu-latest ships Chrome), with its sandbox: required, so its tests
+      # in npm run test:full fail rather than skip when there is no browser. The runner's AppArmor forbids the unprivileged
+      # user namespaces Chromium's sandbox uses; this throwaway VM allows them, so the sandbox stays on in the tests.
+      - run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      # The sandbox API key Botons with Workspace access run their tools in: required, so its tests fail rather than
+      # skip without it (they check what it keeps a Boton from).
+      - run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends bubblewrap
+      - run: npm run check:browser
+      # As `npm run deploy` runs it: the full suite before the web build exists.
+      - name: Full suite before the web build
+        run: |
+          test ! -e web/dist
+          npm run test:full -- ${{ matrix.node == 26 && '--quarantine-handover' || '' }}
+        env:
+          TEST_TIMINGS: test-timings.json
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: test-timings-node-${{ matrix.node }}
+          path: test-timings.json
+          if-no-files-found: warn
+      - run: npm run build
+      # The one test that needs the build: the built app through a Host-rewriting proxy.
+      - run: node --test --test-timeout=120000 server/test/public-origin.test.ts
+        env:
+          BOTONS_LOG_LEVEL: warn
+      # A backup restored onto a fresh machine, with the real commands and servers (the mock provider, temp folders).
+      - run: npm run check:recovery
+      - if: matrix.node == 26
+        run: npx playwright install --with-deps webkit chromium
+      - if: matrix.node == 26
+        run: npm run check:viewport
+      - if: matrix.node == 26
+        run: npm run check:themes
+      # The file viewer's HTML sandbox, in a real browser (ubuntu-latest ships Chrome).
+      - run: npm run check:preview -- --skip-build web/dist
+      # A Boton on an API key, driven as the owner would, against a fake Anthropic API on loopback.
+      - run: npm run check:api-brains -- --skip-build web/dist
+      - if: matrix.node == 24
+        run: npm run check:firstrun -- --skip-build web/dist --out "$RUNNER_TEMP/access-local"
+      - if: matrix.node == 24
+        run: npm run check:firstrun -- --skip-build web/dist --public-forwarded --out "$RUNNER_TEMP/access-public"
+      - uses: actions/upload-artifact@v6
+        if: always() && matrix.node == 24
+        with:
+          name: access-screenshots
+          path: |
+            ${{ runner.temp }}/access-local/*.png
+            ${{ runner.temp }}/access-public/*.png
+      - run: npm run check:workspace
+      - run: npm run check:brain-update
+      # The chat's render and paging budgets (rows rendered per keystroke and per turn, the window held, the row
+      # being read held still) on the 1000-message fixture. They count, so they don't depend on the runner's speed;
+      # the latency and memory numbers it also records are only kept in the log. It builds the app itself, unminified,
+      # because it counts message rows by component name; it fails when it counted none, as a minified build would.
+      - if: matrix.node == 26
+        run: npm run perf:chat -- --out "$RUNNER_TEMP/perf" --budget
+
+  handover-quarantine:
+    if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci')
+    name: Node 26 handover quarantine
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - run: BOTONS_LOG_LEVEL=warn node --test --test-timeout=120000 --test-reporter=./scripts/test-timing.mjs server/test/browser-handover.test.ts
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: test-timings-handover-quarantine
+          path: test-timings.json
+
+  docker:
+    if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci')
+    name: Docker image
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      # The smoke test's first run in a browser: headless Chrome (ubuntu-latest ships it) driving the fresh container.
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
+      - run: docker compose config --quiet
+      - run: scripts/docker-smoke.sh
+
+  installer:
+    if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci')
+    name: Node 22 npm installer on Debian 13
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - run: docker build -f installer/Dockerfile.smoke -t botons-installer-smoke .
+      # A disposable VM-like container: the application sandbox must create mount/user namespaces.
+      # No ports, credentials or host directories are passed into it.
+      - run: docker run --rm --privileged --tmpfs /tmp/botons-tar-data:exec,uid=1000,gid=1000,mode=0700 --tmpfs /tmp/botons-data:exec,uid=1000,gid=1000,mode=0700 --tmpfs /tmp/botons-git-home:exec,uid=1000,gid=1000,mode=0700 --tmpfs /tmp/botons-tar-home:exec,uid=1000,gid=1000,mode=0700 botons-installer-smoke
+
+  codex-proc:
+    if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci')
+    name: Codex helper on Debian 13 with masked proc
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - run: scripts/codex-proc-smoke.sh

@@ -1,0 +1,15 @@
+# Installed by `npm run backup:install`, which fills in the Node binary and
+# checkout paths. Started daily by @TIMER@.
+[Unit]
+Description=Botons backup (database snapshot and workspaces)
+
+[Service]
+Type=oneshot
+# Optional. Set BOTONS_HOME here if the server uses a non-default one, and
+# BOTONS_BACKUP_RSYNC_TO to copy each backup to another machine. It may be
+# missing.
+EnvironmentFile=-%h/.config/botons/env
+UMask=0077
+Nice=10
+IOSchedulingClass=idle
+ExecStart="@NODE@" "@REPO@/scripts/backup.ts"

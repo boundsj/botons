@@ -1,0 +1,9 @@
+# Used by docker/compose.caddy.yaml. Caddy gets and renews the certificate for BOTONS_DOMAIN by itself, and keeps
+# the Host header, which the app checks against BOTONS_PUBLIC_URL.
+{$BOTONS_DOMAIN} {
+	encode zstd gzip
+	reverse_proxy botons:7777 {
+		# /api/events is a server-sent event stream: pass each event on at once.
+		flush_interval -1
+	}
+}

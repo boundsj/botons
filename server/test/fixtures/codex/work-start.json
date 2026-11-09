@@ -1,0 +1,143 @@
+{
+  "about": "A turn that calls work_start on an MCP server named fleet (one succeeds, one fails). Constructed in the shape of recorded codex exec --json events, not recorded.",
+  "recorded": "codex-cli 0.166.0",
+  "argv": [
+    "codex",
+    "exec",
+    "--json",
+    "--skip-git-repo-check",
+    "--ignore-user-config",
+    "--ignore-rules",
+    "--disable",
+    "plugins",
+    "--disable",
+    "apps",
+    "--disable",
+    "remote_plugin",
+    "--disable",
+    "tool_suggest",
+    "-c",
+    "skills.include_instructions=false",
+    "-c",
+    "skills.bundled.enabled=false",
+    "-c",
+    "default_permissions=\"boton\"",
+    "-c",
+    "permissions.boton.extends=\":workspace\"",
+    "-c",
+    "permissions.boton.network.enabled=true",
+    "-c",
+    "permissions.boton.filesystem={\"~/.ssh\"=\"none\"}",
+    "-c",
+    "approval_policy=\"never\"",
+    "-c",
+    "developer_instructions=\"You are a test Boton.\"",
+    "-C",
+    "/tmp/boton-workspace",
+    "-"
+  ],
+  "stdin": "Start the work",
+  "exitCode": 0,
+  "stderr": "",
+  "stdout": [
+    {
+      "type": "thread.started",
+      "thread_id": "01a1aa57-822e-77b2-b248-455af0f06ea8"
+    },
+    {
+      "type": "turn.started"
+    },
+    {
+      "type": "item.started",
+      "item": {
+        "id": "item_1",
+        "type": "mcp_tool_call",
+        "server": "fleet",
+        "tool": "work_start",
+        "arguments": {
+          "project": "app",
+          "task": "Fix the flaky test",
+          "requestId": "req-2"
+        },
+        "status": "in_progress",
+        "result": null,
+        "error": null
+      }
+    },
+    {
+      "type": "item.completed",
+      "item": {
+        "id": "item_1",
+        "type": "mcp_tool_call",
+        "server": "fleet",
+        "tool": "work_start",
+        "arguments": {
+          "project": "app",
+          "task": "Fix the flaky test",
+          "requestId": "req-2"
+        },
+        "status": "completed",
+        "result": {
+          "content": [
+            {
+              "type": "text",
+              "text": "Started job jobstuart01."
+            }
+          ],
+          "structured_content": {
+            "job": {
+              "jobId": "jobstuart01",
+              "state": "queued",
+              "project": "app",
+              "host": "myhost",
+              "title": "Fix the flaky test [job:jobstuart01]",
+              "standing": false,
+              "threadId": "thr-stuart",
+              "link": "t3-thread://v1/thr-stuart",
+              "createdAt": "2026-11-05T06:20:01.000Z",
+              "stateChangedAt": "2026-11-05T06:20:01.000Z",
+              "startedByYou": true
+            },
+            "created": true
+          }
+        },
+        "error": null
+      }
+    },
+    {
+      "type": "item.completed",
+      "item": {
+        "id": "item_2",
+        "type": "mcp_tool_call",
+        "server": "fleet",
+        "tool": "work_start",
+        "arguments": {
+          "task": "Again"
+        },
+        "status": "failed",
+        "result": null,
+        "error": {
+          "message": "request_id_conflict"
+        }
+      }
+    },
+    {
+      "type": "item.completed",
+      "item": {
+        "id": "item_3",
+        "type": "agent_message",
+        "text": "Started job jobstuart01."
+      }
+    },
+    {
+      "type": "turn.completed",
+      "usage": {
+        "input_tokens": 13391,
+        "cached_input_tokens": 12032,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 5,
+        "reasoning_output_tokens": 0
+      }
+    }
+  ]
+}

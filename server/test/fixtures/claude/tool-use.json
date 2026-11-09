@@ -1,0 +1,389 @@
+{
+  "about": "New session; the agent runs one Bash command, then replies.",
+  "recorded": "claude 2.1.316 (--model haiku)",
+  "argv": [
+    "claude",
+    "-p",
+    "--output-format",
+    "stream-json",
+    "--verbose",
+    "--append-system-prompt",
+    "You are a test Boton.",
+    "--system-prompt-snapshot",
+    "off",
+    "--setting-sources",
+    "project,local",
+    "--strict-mcp-config",
+    "--mcp-config",
+    "{\"mcpServers\":{}}",
+    "--disable-slash-commands",
+    "--disallowedTools",
+    "CronCreate",
+    "CronDelete",
+    "CronList",
+    "RemoteTrigger",
+    "PushNotification",
+    "SendMessage",
+    "ScheduleWakeup",
+    "ListAgents",
+    "SendToProject",
+    "SendToProjectContext",
+    "DesignSync",
+    "ReportFindings",
+    "Workflow",
+    "EnterWorktree",
+    "ExitWorktree",
+    "--settings",
+    "{\"autoMemoryEnabled\":false,\"disableAllHooks\":true,\"sandbox\":{\"enabled\":true,\"autoAllowBashIfSandboxed\":true,\"allowUnsandboxedCommands\":false,\"excludedCommands\":[\"boton\",\"Boton *\"]}}",
+    "--permission-mode",
+    "acceptEdits",
+    "--permission-prompts",
+    "none",
+    "--allowedTools",
+    "Bash(botons:*)",
+    "Bash(botons *)",
+    "WebSearch",
+    "WebFetch",
+    "--model",
+    "haiku"
+  ],
+  "stdin": "Use the Bash tool to run exactly `echo hello from bash`, then reply with just its output.",
+  "exitCode": 0,
+  "stderr": "",
+  "stdout": [
+    {
+      "type": "system",
+      "subtype": "init",
+      "cwd": "/tmp/boton-workspace",
+      "session_id": "3877e94e-b431-45fb-9674-e80bbeb87722",
+      "tools": [
+        "Task",
+        "Bash",
+        "Edit",
+        "Monitor",
+        "NotebookEdit",
+        "Read",
+        "TaskStop",
+        "ToolSearch",
+        "WebSearch",
+        "Write"
+      ],
+      "mcp_servers": [],
+      "model": "claude-haiku-5-5",
+      "permissionMode": "acceptEdits",
+      "slash_commands": [],
+      "apiKeySource": "none",
+      "claude_code_version": "2.1.316",
+      "output_style": "default",
+      "agents": [
+        "claude",
+        "Explore",
+        "general-purpose",
+        "Plan",
+        "statusline-setup",
+        "web-fetch"
+      ],
+      "skills": [],
+      "plugins": [
+        {
+          "name": "cc-plugin-agents-md",
+          "path": "builtin",
+          "source": "cc-plugin-agents-md@builtin"
+        },
+        {
+          "name": "cc-plugin-telemetry",
+          "path": "builtin",
+          "source": "cc-plugin-telemetry@builtin"
+        },
+        {
+          "name": "cc-plugin-plugin-authoring",
+          "path": "builtin",
+          "source": "cc-plugin-plugin-authoring@builtin"
+        }
+      ],
+      "capabilities": [
+        "interrupt_receipt_v1",
+        "interrupt_cancel_queued_v1",
+        "interrupt_send_now_v1",
+        "interrupt_requeue_taken_v1",
+        "msg_lifecycle_v1",
+        "request_marker_lists_v1",
+        "ask_user_question_unanswered_v1",
+        "lifecycle_wakeup_source_v1",
+        "sdk_mcp_tools_list_changed",
+        "sdk_mcp_manifests",
+        "mcp_read_resource_v1",
+        "mcp_tool_ui_meta_v1",
+        "ui_surface_v1",
+        "mcp_call_result_not_for_model_v1"
+      ],
+      "analytics_disabled": false,
+      "product_feedback_disabled": false,
+      "uuid": "06b0b9d8-78f1-42e6-86de-cfbddb6ab78b",
+      "original_cwd": "/tmp/boton-workspace",
+      "additional_directories": [],
+      "messaging_socket_path": "/tmp/cc-socks/0.sock",
+      "fast_mode_state": "off",
+      "fast_mode_disabled_reason": "sdk_opt_in_required",
+      "per_turn_effort_active": true,
+      "ultrathink_available": false,
+      "view_mode": "default"
+    },
+    {
+      "type": "assistant",
+      "message": {
+        "model": "claude-haiku-5-5",
+        "id": "msg_011CgjHcfTPJ6W39u9Kpy3cS",
+        "type": "message",
+        "role": "assistant",
+        "content": [
+          {
+            "type": "tool_use",
+            "id": "toolu_01NDmzxhXM3LgmoDRFQBnzS9",
+            "name": "Bash",
+            "input": {
+              "command": "echo hello from bash",
+              "description": "Print greeting via echo"
+            },
+            "caller": {
+              "type": "direct"
+            }
+          }
+        ],
+        "container": null,
+        "stop_reason": null,
+        "stop_sequence": null,
+        "stop_details": null,
+        "usage": {
+          "input_tokens": 2,
+          "cache_creation_input_tokens": 3954,
+          "cache_read_input_tokens": 7943,
+          "cache_creation": {
+            "ephemeral_5m_input_tokens": 0,
+            "ephemeral_1h_input_tokens": 3954
+          },
+          "output_tokens": 16,
+          "service_tier": "standard",
+          "inference_geo": "global",
+          "speed": "standard"
+        },
+        "input_transformations": [],
+        "diagnostics": null,
+        "context_management": null
+      },
+      "parent_tool_use_id": null,
+      "session_id": "3877e94e-b431-45fb-9674-e80bbeb87722",
+      "uuid": "ebf18712-d2fd-474a-8510-270969db0f2a",
+      "timestamp": "2026-11-05T06:12:44.701Z",
+      "request_id": "req_011CgjHcfBkX9eRjFZ6AbMNh",
+      "wire_tool_inputs": {
+        "toolu_01NDmzxhXM3LgmoDRFQBnzS9": {
+          "command": "echo hello from bash",
+          "description": "Print greeting via echo"
+        }
+      }
+    },
+    {
+      "type": "rate_limit_event",
+      "rate_limit_info": {
+        "status": "allowed"
+      },
+      "uuid": "af9b3c73-e522-456d-8069-f62a75fc0691",
+      "session_id": "3877e94e-b431-45fb-9674-e80bbeb87722"
+    },
+    {
+      "type": "user",
+      "message": {
+        "role": "user",
+        "content": [
+          {
+            "tool_use_id": "toolu_01NDmzxhXM3LgmoDRFQBnzS9",
+            "type": "tool_result",
+            "content": "hello from bash",
+            "is_error": false
+          }
+        ]
+      },
+      "parent_tool_use_id": null,
+      "session_id": "3877e94e-b431-45fb-9674-e80bbeb87722",
+      "uuid": "defa27b1-875e-4c96-be1a-e08c4539fea1",
+      "timestamp": "2026-11-05T06:12:44.783Z",
+      "tool_use_result": {
+        "stdout": "hello from bash",
+        "stderr": "",
+        "interrupted": false,
+        "isImage": false,
+        "noOutputExpected": false
+      },
+      "tool_result_meta": [
+        {
+          "id": "toolu_01NDmzxhXM3LgmoDRFQBnzS9",
+          "permission_decision": {
+            "decision": "accept",
+            "source": "config",
+            "reason_type": "other"
+          }
+        }
+      ]
+    },
+    {
+      "type": "assistant",
+      "message": {
+        "model": "claude-haiku-5-5",
+        "id": "msg_011CgjHcniS2kEV5jLFq3CJ2",
+        "type": "message",
+        "role": "assistant",
+        "content": [
+          {
+            "type": "text",
+            "text": "hello from bash"
+          }
+        ],
+        "container": null,
+        "stop_reason": null,
+        "stop_sequence": null,
+        "stop_details": null,
+        "usage": {
+          "input_tokens": 2,
+          "cache_creation_input_tokens": 115,
+          "cache_read_input_tokens": 11897,
+          "cache_creation": {
+            "ephemeral_5m_input_tokens": 0,
+            "ephemeral_1h_input_tokens": 115
+          },
+          "output_tokens": 7,
+          "service_tier": "standard",
+          "inference_geo": "global",
+          "speed": "standard"
+        },
+        "input_transformations": [],
+        "diagnostics": null,
+        "context_management": null
+      },
+      "parent_tool_use_id": null,
+      "session_id": "3877e94e-b431-45fb-9674-e80bbeb87722",
+      "uuid": "f2a853eb-7a2e-4cb6-b845-281d0c8c0dbe",
+      "timestamp": "2026-11-05T06:12:45.907Z",
+      "request_id": "req_011CgjHcnPr1pDJSvxS1CjJo"
+    },
+    {
+      "duration_api_ms": 2732,
+      "stop_reason": "end_turn",
+      "session_id": "3877e94e-b431-45fb-9674-e80bbeb87722",
+      "total_cost_usd": 0.0010566,
+      "usage": {
+        "input_tokens": 4,
+        "cache_creation_input_tokens": 4069,
+        "cache_read_input_tokens": 19840,
+        "output_tokens": 88,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "service_tier": "standard",
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 4069,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "inference_geo": "global",
+        "iterations": [
+          {
+            "input_tokens": 2,
+            "output_tokens": 7,
+            "cache_read_input_tokens": 11897,
+            "cache_creation_input_tokens": 115,
+            "cache_creation": {
+              "ephemeral_5m_input_tokens": 0,
+              "ephemeral_1h_input_tokens": 115
+            },
+            "type": "message"
+          }
+        ],
+        "speed": "standard",
+        "fallback_credit": null
+      },
+      "modelUsage": {
+        "claude-haiku-5-5": {
+          "inputTokens": 4,
+          "outputTokens": 88,
+          "cacheReadInputTokens": 19840,
+          "cacheCreationInputTokens": 4069,
+          "webSearchRequests": 0,
+          "costUSD": 0.0010566,
+          "contextWindow": 1000000,
+          "maxOutputTokens": 128000,
+          "thinkingTokens": 0,
+          "cacheCreationEphemeral5mInputTokens": 0,
+          "cacheCreationEphemeral1hInputTokens": 4069,
+          "canonicalModel": "claude-haiku-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      },
+      "permission_denials": [],
+      "terminal_reason": "completed",
+      "fast_mode_state": "off",
+      "fast_mode_disabled_reason": "sdk_opt_in_required",
+      "subagent_stats": {
+        "spawned": 0,
+        "requested": {
+          "background": 0,
+          "foreground": 0,
+          "unset": 0
+        },
+        "started_in_background": 0,
+        "max_depth": 0,
+        "spawned_by_subagents": 0,
+        "completed": 0,
+        "failed": 0,
+        "killed": {
+          "parent": 0,
+          "user": 0,
+          "system": 0
+        },
+        "refused": {
+          "depth_limit": 0,
+          "concurrency_limit": 0,
+          "budget": 0
+        },
+        "by_type": {}
+      },
+      "safety_stops": 0,
+      "is_error": false,
+      "num_turns": 2,
+      "subtype": "success",
+      "api_error_status": null,
+      "result": "hello from bash",
+      "ttft_ms": 1658,
+      "type": "result",
+      "duration_ms": 2871,
+      "uuid": "e9549dc2-afce-4c45-8160-1e28ca7bb1e2",
+      "ttft_stream_ms": 1297,
+      "time_to_request_ms": 65,
+      "first_content_frame_ms": 1297,
+      "queued_turn_count": 0,
+      "result_index": 0,
+      "model_usage_since_last_result": {
+        "claude-haiku-5-5": {
+          "inputTokens": 4,
+          "outputTokens": 88,
+          "cacheReadInputTokens": 19840,
+          "cacheCreationInputTokens": 4069,
+          "webSearchRequests": 0,
+          "costUSD": 0.0010566,
+          "contextWindow": 1000000,
+          "maxOutputTokens": 128000,
+          "thinkingTokens": 0,
+          "cacheCreationEphemeral5mInputTokens": 0,
+          "cacheCreationEphemeral1hInputTokens": 4069,
+          "canonicalModel": "claude-haiku-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    }
+  ]
+}

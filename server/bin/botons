@@ -1,0 +1,4 @@
+#!/bin/sh
+# BOTONS_NODE is the server's Node, so this works where node is not on PATH (as under systemd).
+here="$(cd "$(dirname "$0")" && pwd)"
+exec "${BOTONS_NODE:-node}" --no-warnings "$here/../src/cli/botons.ts" "$@"

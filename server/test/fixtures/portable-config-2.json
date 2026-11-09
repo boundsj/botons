@@ -1,0 +1,180 @@
+{
+  "format": "minions-config",
+  "version": 2,
+  "exportedAt": "2026-11-01T09:00:00.000Z",
+  "source": {
+    "app": "0.1.0",
+    "schema": 30
+  },
+  "settings": {
+    "ownerName": "Sam",
+    "timezone": "UTC",
+    "primaryMinion": "m1",
+    "ntfy": {
+      "enabled": false,
+      "server": "",
+      "topic": "",
+      "preview": false,
+      "tokenLeftOut": false
+    },
+    "reactionFollowUps": [
+      "👎",
+      "❤️"
+    ]
+  },
+  "minions": [
+    {
+      "ref": "m1",
+      "name": "Dave",
+      "title": "Researcher",
+      "instructions": "Answer with short, sourced summaries.",
+      "look": {
+        "body": "bun",
+        "ears": "feelers",
+        "eyes": "dot",
+        "mouth": "smile",
+        "marks": "cap",
+        "cheeks": false,
+        "color": "coral",
+        "backdrop": "navy"
+      },
+      "provider": "mock",
+      "model": "",
+      "effort": "",
+      "access": "workspace",
+      "timezone": "UTC",
+      "paused": false,
+      "connections": [
+        "lib:wiki"
+      ],
+      "skills": null,
+      "askFirst": [],
+      "alwaysAllow": [],
+      "browserSites": [],
+      "routines": [
+        {
+          "name": "Daily digest",
+          "instruction": "Summarise what changed.",
+          "schedule": "daily at 9:00",
+          "timezone": null,
+          "webhook": false,
+          "notify": "auto",
+          "webhookWorkspace": true,
+          "webhookSource": "generic",
+          "webhookFilter": null,
+          "skill": "digest",
+          "model": null,
+          "effort": null,
+          "session": "chat",
+          "timeLimitMs": null,
+          "enabled": true,
+          "webhookSecretLeftOut": false,
+          "callbackLeftOut": false
+        }
+      ]
+    }
+  ],
+  "skills": [
+    {
+      "name": "digest",
+      "description": "Write a digest",
+      "body": "List each change in one line.",
+      "disabled": false,
+      "author": {
+        "kind": "owner"
+      },
+      "source": null,
+      "history": []
+    }
+  ],
+  "connectors": [
+    {
+      "id": "lib:wiki",
+      "kind": "library",
+      "name": "wiki",
+      "onRequest": false,
+      "grant": "approval",
+      "enabled": true,
+      "leftOut": [
+        "header values (Authorization)"
+      ],
+      "transport": "http",
+      "command": "",
+      "args": [],
+      "url": "https://wiki.example.com/mcp",
+      "envKeys": [],
+      "headerKeys": [
+        "Authorization"
+      ]
+    }
+  ],
+  "sidebar": {
+    "format": "minions-sidebar",
+    "version": 1,
+    "pinned": {
+      "collapsed": false,
+      "botIds": []
+    },
+    "groups": [
+      {
+        "name": "Research",
+        "collapsed": false,
+        "botIds": [
+          "m1"
+        ]
+      }
+    ],
+    "ungrouped": {
+      "collapsed": false,
+      "botIds": []
+    }
+  },
+  "templates": [
+    {
+      "ref": "t1",
+      "name": "Researcher",
+      "description": "Researcher, saved from Dave.",
+      "bot": {
+        "name": "",
+        "title": "Researcher",
+        "instructions": "Answer with short, sourced summaries.",
+        "look": {
+          "body": "bun",
+          "ears": "feelers",
+          "eyes": "dot",
+          "mouth": "smile",
+          "marks": "cap",
+          "cheeks": false,
+          "color": "coral",
+          "backdrop": "navy"
+        },
+        "provider": "mock",
+        "model": "",
+        "effort": "",
+        "access": "workspace",
+        "group": "",
+        "timezone": null,
+        "connections": [],
+        "skills": null
+      },
+      "routines": [
+        {
+          "name": "Daily digest",
+          "instruction": "Summarise what changed.",
+          "schedule": "daily at 9:00",
+          "timezone": null,
+          "webhook": false,
+          "notify": "auto",
+          "webhookWorkspace": true,
+          "webhookSource": "generic",
+          "webhookFilter": null,
+          "skill": "digest",
+          "model": null,
+          "effort": null,
+          "session": "chat",
+          "timeLimitMs": null
+        }
+      ]
+    }
+  ]
+}

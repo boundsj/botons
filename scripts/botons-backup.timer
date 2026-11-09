@@ -1,0 +1,11 @@
+# Installed by `npm run backup:install`. Runs @SERVICE@ daily.
+[Unit]
+Description=Nightly Botons backup
+
+[Timer]
+OnCalendar=*-*-* 03:30:00
+# If the machine was off or asleep at 03:30, back up as soon as it is back.
+Persistent=true
+
+[Install]
+WantedBy=timers.target
