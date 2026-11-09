@@ -48,7 +48,9 @@
     "check:themes": "node scripts/check-themes.ts",
     "test:integration": "node scripts/test-tier.mjs integration",
     "check:brain-update": "node scripts/check-brain-update.ts",
-    "check:workspace": "node scripts/check-workspace-access.ts"
+    "check:workspace": "node scripts/check-workspace-access.ts",
+    "site:build": "node site/build.ts",
+    "site:og": "node site/og.ts"
   },
   "devDependencies": {
     "@playwright/test": "^1.65.0",

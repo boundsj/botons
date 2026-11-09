@@ -12,7 +12,7 @@ const unit = new Set([
   'server-log-loader', 'theme', 'wake', 'boton', 'web-brains', 'web-browser-access', 'web-copy', 'web-deferred', 'web-files',
   'browser-handoff', 'browser-request', 'service-presets', 'web-live-view',
   'web-live-settings', 'web-reactions', 'web-sidebar', 'web-skills', 'web-util',
-  'held-dir', 'private-storage', 'connector-launch', 'service-manager',
+  'held-dir', 'private-storage', 'connector-launch', 'site', 'service-manager',
 ].map(name => `${name}.test.ts`));
 const tier = process.argv[2] || 'all';
 if (!['unit', 'integration', 'all'].includes(tier)) throw new Error(`Unknown test tier: ${tier}`);

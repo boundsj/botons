@@ -1,5 +1,6 @@
 node_modules/
 web/dist/
+site/dist/
 .botons-dev/
 *.log
 # Never commit local notes, personal agent settings, secrets or a database.

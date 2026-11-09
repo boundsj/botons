@@ -54,8 +54,9 @@ const SECRETS = [
 ];
 // Binary files that were checked by hand and may be published: the brand board's images, which
 // docs/brand/board/capture.ts draws from the board's own placeholder content, and the app's home-screen icons, which
-// scripts/icons.ts draws from the brand marks (no real install, names or data in either).
-const BINARY_OK: RegExp[] = [/^docs\/brand\/img\/[a-z0-9-]+\.png$/, /^web\/public\/(apple-touch-icon|icon-\d+)\.png$/];
+// scripts/icons.ts draws from the brand marks, and the site social image drawn from the same renderers
+// (no real install, names or data in any of them).
+const BINARY_OK: RegExp[] = [/^docs\/brand\/img\/[a-z0-9-]+\.png$/, /^web\/public\/(apple-touch-icon|icon-\d+)\.png$/, /^site\/og\.png$/];
 
 /**
  * The product's earlier names (shared/legacy-names.mjs) appear only where something still has to read or move them:
