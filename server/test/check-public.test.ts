@@ -114,18 +114,19 @@ test('only the exact license copyright line may contain the owner name', () => {
 });
 
 
-test('public project links are scoped to About and exact README install URLs', () => {
+test('public repository URLs are allowed everywhere while private owner references are flagged', () => {
   const owner = 'bounds' + 'j';
-  const url = `https://github.com/${owner}/botons`;
+  const url = `github.com/${owner}/botons`;
   const terms = [new RegExp(owner, 'i')];
-  const about = 'web/src/components/SettingsDialog.tsx';
-  for (const path of ['', '/blob/main/LICENSE', '/security/advisories']) assert.deepEqual(scan(url + path, about, terms), []);
-  for (const text of [url.replace('/botons', '/other'), url + '-x', owner]) assert.equal(scan(text, about, terms).length, 1);
-  for (const file of ['README.md', 'commit abc123 README.md']) {
-    for (const suffix of ['', '.git']) assert.deepEqual(scan('npx -y git+' + url + suffix + ' install', file, terms), []);
-    for (const text of [url + '/issues', url + '.git.evil', url + '-x', owner, url + ' ' + owner]) {
-      assert.equal(scan(text, file, terms).length, 1);
-    }
+  for (const file of ['installer/package-release.mjs', 'docs/install.md', 'commit abc123']) {
+    for (const text of [
+      `https://${url}#readme`, `git+https://${url}.git`, `https://${url}/issues`,
+      url, `http://${url}`, `git+${url}.git`, `"${url}",`,
+    ]) assert.deepEqual(scan(text, file, terms), []);
+    for (const text of [
+      `https://${url}-private`, `https://${url}.git.evil`,
+      `https://github.com/${owner}/other`, owner, `${url} ${owner}`,
+    ]) assert.equal(scan(text, file, terms).length, 1);
+    assert.ok(scan(`${owner}@example.com`, file, terms).some((p) => p.rule === 'private term'));
   }
-  assert.equal(scan(url, 'docs/install.md', terms).length, 1);
 });

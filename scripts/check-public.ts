@@ -120,12 +120,9 @@ export function scan(text: string, where: string, terms: RegExp[] = []): Problem
     // The owner explicitly requires the future public reporting destination in these policies.
     const privateLine = /^(SECURITY\.md|docs\/release-checklist\.md)$/.test(where)
       ? line.replace(/(?<=repos\/|github\.com\/)[A-Za-z0-9-]+\/botons\b/g, 'public/repo') : line;
-    // README installation commands may name only the exact public repository URL.
-    const readmeLine = /^(?:commit [a-f0-9]+ )?README\.md$/.test(where)
-      ? privateLine.replace(/https:\/\/github\.com\/bounds[j]\/botons(?:\.git)?(?=[\s`"'<>)]|$)/g, 'https://github.com/public/project')
-      : privateLine;
+    // Public repository links are safe in any file or commit message; other owner references are not.
+    const publicLine = privateLine.replace(/(?:git\+)?(?:https?:\/\/)?github\.com\/bounds[j]\/botons(?:\.git)?(?=[/#\s`"'<>),;\]}]|$)/gi, 'https://github.com/public/project');
     for (const re of terms) {
-      const publicLine = (where === 'web/src/components/SettingsDialog.tsx' || /^commit [a-f0-9]+ web\/src\/components\/SettingsDialog\.tsx$/.test(where)) ? readmeLine.replace(/https:\/\/github\.com\/bounds[j]\/botons(?=[\s\"'<>/]|$)/g, 'https://github.com/public/project') : readmeLine;
       const m = re.exec(publicLine);
       if (m) add('private term', m[0]);
     }
