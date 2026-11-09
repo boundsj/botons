@@ -19,8 +19,14 @@ export function packageRelease(out, name = 'getbotons', version = VERSION) {
   for (const item of files.filter(f => f.startsWith('installer/'))) cpSync(item, resolve(out, item), { recursive: true });
   // The installer reads the deprecated names from here before it has the payload's Node (shared/legacy-names.mjs).
   for (const f of ['legacy-names.mjs', 'legacy-names.d.mts']) cpSync(resolve('shared', f), resolve(out, 'shared', f));
+  for (const file of ['README.md', 'LICENSE']) cpSync(file, resolve(out, file));
   writeFileSync(resolve(out, 'package.json'), JSON.stringify({
     name, version, type: 'module', license: 'MIT',
+    description: 'A self-hosted home for AI agents that runs your own Claude Code or Codex.',
+    keywords: ['ai', 'agents', 'self-hosted', 'claude-code', 'codex'],
+    homepage: 'https://github.com/boundsj/botons#readme',
+    repository: { type: 'git', url: 'git+https://github.com/boundsj/botons.git' },
+    bugs: { url: 'https://github.com/boundsj/botons/issues' },
     bin: { botons: 'installer/botons.mjs' }, engines: { node: '>=20' },
   }, null, 2));
 }

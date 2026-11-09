@@ -9,7 +9,7 @@ Botons is a self-hosted home for AI agents that runs your own Claude Code or Cod
 You need a Linux box and Node 20+. Sign in to your own Claude Code and/or Codex on that box.
 
 ```sh
-npx -y git+https://github.com/boundsj/botons.git install
+npx getbotons install
 ```
 
 1. Open the URL the installer prints.
@@ -26,13 +26,13 @@ Install a release tarball on Linux x64 or arm64 (Node 20+ can launch the install
 npx -y file:/path/to/getbotons-<version>.tgz install
 ```
 
-Install directly from the public Git repository:
+As a fallback, install straight from source in the public Git repository:
 
 ```sh
 npx -y git+https://github.com/boundsj/botons.git install
 ```
 
-npm clones the Git dependency to launch the plain JavaScript bin. There is no `prepare` lifecycle: npm does not install the workspace development dependencies before launching it. The entry runs on Node 20/22, downloads official Node 24, checks its SHA-256 against the official HTTPS checksum list, and uses that runtime to install dependencies and build the web app. Installed releases need no GitHub token. Avoid `#sha` fragments in the npx URL: Node 22 npm has reported GitFetcher/Arborist packing failures with that form. For a selected branch, tag or SHA, leave the npx URL plain and pass `install --source <git-url> --ref <ref>`; the bootstrap fetches that ref itself. No npm package has been published.
+npm clones the Git dependency to launch the plain JavaScript bin. There is no `prepare` lifecycle: npm does not install the workspace development dependencies before launching it. The entry runs on Node 20/22, downloads official Node 24, checks its SHA-256 against the official HTTPS checksum list, and uses that runtime to install dependencies and build the web app. Installed releases need no GitHub token. Avoid `#sha` fragments in the npx URL: Node 22 npm has reported GitFetcher/Arborist packing failures with that form. For a selected branch, tag or SHA, leave the npx URL plain and pass `install --source <git-url> --ref <ref>`; the bootstrap fetches that ref itself.
 
 npx can reuse a cached installer even after the Git branch changes. Check the startup line: it prints the running installer's commit when available and always prints its code fingerprint. A selected application `--ref` is separate from that bootstrap identity. To bypass stale npx state without deleting any cache or install, use a fresh cache directory:
 
