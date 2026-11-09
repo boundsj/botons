@@ -524,7 +524,7 @@ export function OAuthConnectors() {
       </details>
       {oauth && !ready && (
         <p className="hint warn" role="note">
-          Signing in needs an HTTPS address for the sign-in to come back to. Set <code>BOTONS_OAUTH_PUBLIC_URL</code> (see "OAuth connectors" in the README) and
+          Signing in needs an HTTPS address for the sign-in to come back to. Set <code>BOTONS_OAUTH_PUBLIC_URL</code> (see docs/connectors.md, "The HTTPS callback") and
           restart Botons.
         </p>
       )}
@@ -702,7 +702,7 @@ export function ServiceKindPicker({ onPick, onPreset, oauthReady }: { onPick: (k
           <span className="hint">{k.text}</span>
           {k.kind === 'oauth' && !oauthReady && (
             <span className="hint warn">
-              Needs <code>BOTONS_OAUTH_PUBLIC_URL</code>, an HTTPS address for the sign-in to come back to (see "OAuth connectors" in the README).
+              Needs <code>BOTONS_OAUTH_PUBLIC_URL</code>, an HTTPS address for the sign-in to come back to (see docs/connectors.md, "The HTTPS callback").
             </span>
           )}
         </button>

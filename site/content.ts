@@ -10,7 +10,7 @@ export const COPY = {
   description: 'Your own team of AI agents, powered by the AI you already use. Give each one a role, and they get to work: on your computer, on a schedule, together.',
   skip: 'Skip to content',
   navLabel: 'Main navigation',
-  nav: { features: 'Features', compare: 'How it compares', install: 'Install', github: 'GitHub' },
+  nav: { features: 'Features', compare: 'How it compares', install: 'Get started', github: 'GitHub' },
   hero: {
     eyebrow: 'Self-hosted · open source',
     heading: 'A home for your AI agents.',
@@ -40,8 +40,8 @@ export const COPY = {
     ],
   },
   brains: {
-    eyebrow: 'Bring the brains',
-    heading: 'A Boton is the body. You bring the brains.',
+    eyebrow: 'The AI you already use',
+    heading: 'Bring your own AI.',
     lede: 'Botons runs your own Claude Code or Codex, signed in on your box. Or give a Boton an API key.',
     rows: [['Claude Code', 'your own CLI'], ['Codex', 'your own CLI'], ['API key', 'pay per use']],
   },
@@ -52,8 +52,15 @@ export const COPY = {
     question: 'Submit the booking form?', domain: 'reserve.example.com', allow: 'Allow once', deny: 'Not now',
   },
   install: {
-    eyebrow: 'Install', heading: 'Up in one command.', lede: 'On your own box or VM with Node 20+.',
-    steps: [['Install', ''], ['Pair', 'Open the link it prints. Approve the code.'], ['Make a Boton', 'Pick a look. Give it a job.']],
+    eyebrow: 'Get started', heading: 'Your first Boton in a few minutes.',
+    lede: 'Four small steps on your own computer. All you need is Node 20 or newer.',
+    steps: [
+      ['Bring your AI', 'Sign in to Claude Code or Codex. Botons runs the one you already use.'],
+      ['Run one command', 'Paste it into a terminal.'],
+      ['Open the link', 'Open the link it prints, then approve the code it shows.'],
+      ['Make a Boton', 'Pick a look, give it a role, and say hello.'],
+    ],
+    docsLink: 'Read the full install guide',
     noteBefore: 'Prefer containers? ', noteLink: "There's a Docker setup too.",
   },
   compare: {
@@ -69,5 +76,5 @@ export const COPY = {
     scrollLabel: 'Comparison table, scroll horizontally to see all columns',
   },
   cta: { eyebrow: 'Lights on', heading: 'Make your first Boton.' },
-  footer: { license: 'MIT licensed', independent: 'Claude Code and Codex belong to their owners; Botons is independent.' },
+  footer: { license: 'MIT licensed', independent: 'Botons is independent and not affiliated with the makers of Claude Code or Codex.' },
 } as const;

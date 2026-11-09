@@ -1,6 +1,6 @@
 # Running Botons with Docker Compose
 
-`compose.yaml` runs Botons in one container on a laptop, a home server or a VPS. It keeps the data in volumes, checks its own health, and listens on `127.0.0.1` only unless you choose otherwise. The systemd service in the README is the other supported way to run Botons; pick one per data folder.
+`compose.yaml` runs Botons in one container on a laptop, a home server or a VPS. It keeps the data in volumes, checks its own health, and listens on `127.0.0.1` only unless you choose otherwise. The installer's service ([Install](install.md)) and the systemd service ([Operations](operations.md#run-it-as-a-service)) are the other supported ways to run Botons; pick one per data folder.
 
 You need Docker Engine with Compose v2.24 or newer. The image installs the `claude` and `codex` CLIs from their publishers' npm packages (their own terms apply); you sign in to them once, inside the container.
 
@@ -14,11 +14,11 @@ docker compose exec -it botons botons login claude      # and/or: botons login c
 docker compose exec botons botons pair --approve <code>   # the code http://localhost:7777 shows
 ```
 
-Open `http://localhost:7777` first: it shows a code, and approving it with the command above signs the page in. The first device to pair claims the server, and the web app then walks you through your name, who can connect (the access mode; "This machine only" fits this setup), the CLI sign-ins, a first Boton and a health check (README, "First run"). On a VPS, reach it through an SSH tunnel (`ssh -L 7777:127.0.0.1:7777 you@myhost`) until you set up one of the HTTPS modes below.
+Open `http://localhost:7777` first: it shows a code, and approving it with the command above signs the page in. The first device to pair claims the server, and the web app then walks you through your name, who can connect (the access mode; "This machine only" fits this setup), the CLI sign-ins, a first Boton and a health check ([First run](first-run.md)). On a VPS, reach it through an SSH tunnel (`ssh -L 7777:127.0.0.1:7777 you@myhost`) until you set up one of the HTTPS modes below.
 
 In the container every request arrives from Docker's network, so the `local` and `tailscale` access modes also accept private addresses: there, the published port (`127.0.0.1` by default) or the sidecar is what keeps other networks out, and a proxy or tunnel in front of the published port lets through whoever can reach it. The setup screen and Settings → Access say so. If a mode locks you out, `docker compose exec botons botons pair --access-mode none` clears it.
 
-Signing in to a CLI creates a credential: it is the owner's step, and it is kept in the `home` volume. Never put API keys or other credentials in `botons.env` or `.env` for the server: Botons with Host access run as the same user as the server and can read its environment and everything in the container.
+Signing in to a CLI creates a credential: it is the owner's step, and it is kept in the `home` volume. Never put API keys or other credentials in `botons.env` or `.env` for the server: Botons with Full computer access run as the same user as the server and can read its environment and everything in the container.
 
 ## Check it
 
@@ -117,7 +117,7 @@ docker compose -f compose.yaml -f docker/compose.caddy.yaml up -d
 
 - Tailscale is not used inside the container (`BOTONS_NO_TAILSCALE=1`), so there is no one-click pairing: devices pair with a code.
 - `npm run deploy`, `service:install` and `backup:install` are for the systemd service; Compose replaces them.
-- An install made under an earlier name: run `sh docker/legacy-names.sh` once before the first `docker compose up -d --build` of this version (README, "Upgrading an install made under an earlier name").
+- An install made under an earlier name: run `sh docker/legacy-names.sh` once before the first `docker compose up -d --build` of this version ([Install](install.md#upgrading-an-install-made-under-an-earlier-name)).
 - Admin commands run inside the container: `docker compose exec botons botons <doctor | pair | backup | restore>`.
 - OAuth connectors need `BOTONS_OAUTH_PUBLIC_URL` (an `https://` origin that reaches `/oauth/callback`): with the Tailscale or Caddy modes, that is the same origin as `BOTONS_PUBLIC_URL`. Put it in `botons.env`.
 

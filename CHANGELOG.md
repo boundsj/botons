@@ -4,6 +4,8 @@ What changes for people running Botons. Release notes are written from this when
 
 ## Unreleased
 
+- **Docs.** The README is a short welcome with a quick start; the full guide (install, first run, brains, access, routines, connectors, the browser, backups, configuration and more) lives in `docs/`, starting at `docs/README.md`. Messages from the server and the app that point to the docs name the new pages.
+
 ## 0.1.1
 
 ### Runs on a Mac

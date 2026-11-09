@@ -8,6 +8,7 @@ test('marketing page has portable assets, honest copy and social metadata', () =
   const html = renderPage({ siteUrl: base });
   assert.ok(html.includes('runs your own Claude Code or Codex'));
   assert.ok(html.includes(INSTALL_COMMAND));
+  assert.ok(html.includes(`${REPO_URL}/blob/main/docs/install.md`), 'Get started links to the full install guide');
   assert.ok(html.includes(OS_LINE));
   assert.equal(OS_LINE, 'Node 20+ · MIT licensed');
   assert.doesNotMatch(html, /unlimited|24\/7|instead of the API|subscription|always[- ]on/i);

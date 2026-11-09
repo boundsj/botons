@@ -20,10 +20,10 @@ const RECOVERY: Record<OperationsStatus['install'], { backup: string; restore: s
       installCommand('service', 'restore', 'latest --yes'),
       'systemctl --user start botons',
     ].join('\n'),
-    doc: 'README.md, Backups',
+    doc: 'docs/backups.md',
     log: 'journalctl --user -u botons',
   },
-  managed: { backup: installCommand('managed', 'backup'), restore: ['systemctl --user stop botons', installCommand('managed', 'restore', '--list'), installCommand('managed', 'restore', 'latest'), installCommand('managed', 'restore', 'latest --yes'), 'systemctl --user start botons'].join('\n'), doc: 'README.md, Backups', log: 'journalctl --user -u botons' },
+  managed: { backup: installCommand('managed', 'backup'), restore: ['systemctl --user stop botons', installCommand('managed', 'restore', '--list'), installCommand('managed', 'restore', 'latest'), installCommand('managed', 'restore', 'latest --yes'), 'systemctl --user start botons'].join('\n'), doc: 'docs/backups.md', log: 'journalctl --user -u botons' },
   docker: {
     backup: installCommand('docker', 'backup'),
     restore: [

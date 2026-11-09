@@ -1,7 +1,7 @@
 # Botons with Docker Compose: see docs/DOCKER.md. Two files, both optional and never committed:
 #   .env          compose's own settings (address, port, domain, Tailscale key, build args); copy .env.example.
 #                 Only the values named below reach a container, so the Tailscale key never reaches the server.
-#   botons.env    the server's BOTONS_* settings (see "Configuration" in the README); copy botons.env.example.
+#   botons.env    the server's BOTONS_* settings (see docs/configuration.md); copy botons.env.example.
 # By default the app is published on 127.0.0.1 only. For HTTPS add one of the overlays:
 #   docker compose -f compose.yaml -f docker/compose.tailscale.yaml up -d   (Tailscale sidecar, tailnet only)
 #   docker compose -f compose.yaml -f docker/compose.caddy.yaml up -d       (Caddy, a public domain)

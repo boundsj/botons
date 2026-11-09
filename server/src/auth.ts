@@ -325,7 +325,7 @@ export class Auth {
     if (token?.startsWith('mmt_')) {
       return "This Boton token is no longer valid: each one lasts a single turn. Run `botons` (the one on your PATH, which has this turn's token) during your current turn; don't save or reuse a token.";
     }
-    const device = 'This device is not paired with Botons. Open the web app to pair it (see "Pairing devices" in the README).';
+    const device = 'This device is not paired with Botons. Open the web app to pair it (see docs/access.md, "Pairing devices").';
     if (!token && (access.boton || access.anyBoton)) {
       return `${device} A Boton: run \`botons\` from your PATH, which sends this turn's token.`;
     }

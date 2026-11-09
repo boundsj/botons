@@ -1,6 +1,6 @@
 # Botons: notes for agents
 
-Botons is a self-hosted server for always-on AI agents ("botons"), each with its own chat, routines, memory and workspace, running on the local `claude` or `codex` CLI. Node 24+ runs the TypeScript directly (type stripping) with `node:sqlite`; the web app is React + Vite. See README.md for running and operating it.
+Botons is a self-hosted server for always-on AI agents ("botons"), each with its own chat, routines, memory and workspace, running on the local `claude` or `codex` CLI. Node 24+ runs the TypeScript directly (type stripping) with `node:sqlite`; the web app is React + Vite. See README.md and docs/ (docs/README.md is the index) for installing, running and operating it; docs/development.md for working on it.
 
 ## Commands
 

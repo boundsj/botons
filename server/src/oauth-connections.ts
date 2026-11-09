@@ -213,7 +213,7 @@ export class OAuthConnections {
     if (!redirectUri) {
       throw new HttpError(
         409,
-        'Set BOTONS_OAUTH_PUBLIC_URL to an HTTPS address that reaches this server\'s /oauth/callback (see "OAuth connectors" in the README), then restart Botons.',
+        'Set BOTONS_OAUTH_PUBLIC_URL to an HTTPS address that reaches this server\'s /oauth/callback (see docs/connectors.md, "The HTTPS callback"), then restart Botons.',
       );
     }
     const allow = this.#cfg.oauth.allow;

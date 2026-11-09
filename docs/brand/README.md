@@ -1,6 +1,6 @@
 # Botons brand board
 
-**A Boton is the body. You bring the brains.** Botons (said like "buttons") are small, always-on helpers drawn as little button-bots: a round, pill or keycap body, a lit face on a dark display, and swappable parts. They have no brains of their own; the owner gives them one by connecting Claude, Codex or an API key. The brand is electric and a bit playful, and it stays calm where the work happens. People trust Botons with their computer and their keys.
+**Bring your own AI.** Botons (said like "buttons") are small, always-on helpers drawn as little button-bots: a round, pill or keycap body, a lit face on a dark display, and swappable parts. They have no brains of their own; the owner gives them one by connecting Claude, Codex or an API key. The brand is electric and a bit playful, and it stays calm where the work happens. People trust Botons with their computer and their keys.
 
 This folder holds the board. `board/index.html` is the live board (open it through any static server, for example `python3 -m http.server -d docs/brand/board`), and `node docs/brand/board/capture.ts` rewrites the images in `img/` from it and fails if a contrast target is missed. Nothing in the app imports these files; the app's renderer and tokens are drawn from the chosen direction.
 

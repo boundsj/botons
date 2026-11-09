@@ -856,7 +856,7 @@ export function openSchema(db: DatabaseSync, opts: { beforeUpgrade?: (version: n
         try {
           UPGRADES[v](db);
         } catch (err) {
-          throw new SchemaError(`The database is at schema version ${version}, but upgrading it to ${SCHEMA_VERSION} failed (${(err as Error).message}), so it was left as it was. Restore a backup (see "Backups" in the README).`);
+          throw new SchemaError(`The database is at schema version ${version}, but upgrading it to ${SCHEMA_VERSION} failed (${(err as Error).message}), so it was left as it was. Restore a backup (see docs/backups.md).`);
         }
       }
     }
@@ -872,11 +872,11 @@ function refusal(version: number): string {
   if (version > SCHEMA_VERSION) {
     return (
       `The database is at schema version ${version}, but this version of Botons only knows versions up to ${SCHEMA_VERSION}. ` +
-      'It was upgraded by a newer Botons. Run that newer version, or restore a backup taken before the upgrade (see "Backups" in the README).'
+      'It was upgraded by a newer Botons. Run that newer version, or restore a backup taken before the upgrade (see docs/backups.md).'
     );
   }
   return (
     `The database ${version ? `is at schema version ${version}` : 'has no schema version'}, but this version of Botons only opens schema version ${SCHEMA_VERSION} (or ${Object.keys(UPGRADES).join(' or ')}, which it upgrades) or an empty database. ` +
-    `Restore a backup at version ${SCHEMA_VERSION} (see "Backups" in the README), or set BOTONS_HOME to an empty folder to start over.`
+    `Restore a backup at version ${SCHEMA_VERSION} (see docs/backups.md), or set BOTONS_HOME to an empty folder to start over.`
   );
 }

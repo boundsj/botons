@@ -165,7 +165,7 @@ PATH=${quoteEnv(servicePath)}
 ${line('BOTONS_CLAUDE_BIN', claude, 'claude')}
 ${line('BOTONS_CODEX_BIN', codex, 'codex')}
 #
-# Other settings (see "Configuration" in the README), for example:
+# Other settings (see docs/configuration.md), for example:
 # BOTONS_HOME=/home/you/.botons
 # BOTONS_PORT=7777
 # BOTONS_PUBLIC_URL=http://yourhost.your-tailnet.ts.net:7777

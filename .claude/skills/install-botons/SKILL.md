@@ -35,9 +35,9 @@ If a Botons server already runs on this machine, find its data folder (doctor's 
 ## 2. Choose with the owner
 
 - **Docker Compose** (`docs/DOCKER.md`): one container, data in volumes, the CLIs installed in the image. Best on a VPS or a machine without Node. No one-click Tailscale pairing; Workspace-access sandboxing needs extra confinement choices.
-- **systemd user service** (README, "Run it as a service"): runs on the host as the owner's user, with the host's CLIs and logins, Tailscale one-click pairing, and `npm run deploy` releases with rollback.
+- **systemd user service** (docs/operations.md, "Run it as a service"): runs on the host as the owner's user, with the host's CLIs and logins, Tailscale one-click pairing, and `npm run deploy` releases with rollback.
 
-And how devices reach it: this machine only (the default), Tailscale (recommended for other devices), or a public domain behind HTTPS. The last two need the owner's go-ahead (above). For other devices, offer HTTPS for the whole app (Tailscale Serve, or Caddy with a domain): over plain `http://` browsers flag the page and its downloads as not secure. The README ("HTTPS for the whole app") and `docs/DOCKER.md` have the commands; show them to the owner and run them only after they agree, since each is an exposure change.
+And how devices reach it: this machine only (the default), Tailscale (recommended for other devices), or a public domain behind HTTPS. The last two need the owner's go-ahead (above). For other devices, offer HTTPS for the whole app (Tailscale Serve, or Caddy with a domain): over plain `http://` browsers flag the page and its downloads as not secure. docs/access.md ("HTTPS for the whole app") and `docs/DOCKER.md` have the commands; show them to the owner and run them only after they agree, since each is an exposure change.
 
 ## 3a. Docker Compose
 
@@ -95,7 +95,7 @@ consent rules above before starting a real installation.
 Choose Full computer access explicitly: Workspace access and local command MCP
 connectors require Linux. Workspace file browsing, uploads, trash and package
 installs are refused because safe folder-handle operations are unavailable.
-See README's macOS section for the complete limits. Never bypass these checks
+See the macOS section of docs/install.md for the complete limits. Never bypass these checks
 with a weaker sandbox. Doctor reports the platform limits without failing a
 healthy Full computer installation.
 
@@ -108,7 +108,7 @@ Back up first, always: `npm run backup` (Docker: `docker compose exec botons bot
 
 ### An install made under an earlier name
 
-It upgrades in place (README, "Upgrading an install made under an earlier name"): the server's first start backs up and moves the data folder, and `npm run deploy` (or the installer, for an install it made) moves the service to `botons.service`, its env file to `~/.config/botons/env` and its release folder, starting the earlier unit again if the new one fails. That is a short stop: ask first. Docker: `sh docker/legacy-names.sh` once, before `docker compose up -d --build` (also a stop: ask). `npm run migrate:names -- --rollback` (Docker: `sh docker/legacy-names.sh --rollback`) goes back. Afterwards, doctor's `deprecated` lines name anything still under an earlier name.
+It upgrades in place (docs/install.md, "Upgrading an install made under an earlier name"): the server's first start backs up and moves the data folder, and `npm run deploy` (or the installer, for an install it made) moves the service to `botons.service`, its env file to `~/.config/botons/env` and its release folder, starting the earlier unit again if the new one fails. That is a short stop: ask first. Docker: `sh docker/legacy-names.sh` once, before `docker compose up -d --build` (also a stop: ask). `npm run migrate:names -- --rollback` (Docker: `sh docker/legacy-names.sh --rollback`) goes back. Afterwards, doctor's `deprecated` lines name anything still under an earlier name.
 
 Run doctor afterwards. A schema upgrade can't be undone by running the old code: going back means the old release plus a restore of the backup you just made. The server also backs up by itself before a schema upgrade. Connectors are only Botons' own (Settings → MCP servers and sign-in connectors); an upgrade that takes a Boton's Claude Code or Codex connectors off it leaves a notice in that Boton's settings, and doctor's `connectors` lines list them: tell the owner, who chooses any replacement.
 

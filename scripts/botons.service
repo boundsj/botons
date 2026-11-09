@@ -1,5 +1,5 @@
 # Installed by `npm run service:install`, which fills in the Node binary, the
-# app folder and the environment file. See "Run it as a service" in the README.
+# app folder and the environment file. See docs/operations.md, "Run it as a service".
 [Unit]
 Description=@DESCRIPTION@
 # Restart after a crash, but give up (and leave it failed) if it keeps failing:

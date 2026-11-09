@@ -234,7 +234,7 @@ test('restoring a backup into a different BOTONS_HOME brings back chats, routine
     memories: await get<Memory[]>(live, `/api/bots/${bot.id}/memories`),
   };
 
-  // The README's restore steps, into a new home.
+  // The documented restore steps (docs/backups.md), into a new home.
   const other = tempDir('botons-restore-test-');
   copyFileSync(join(dir, 'botons.db'), join(other, 'botons.db'));
   execFileSync('tar', ['-xzf', join(dir, 'workspaces.tar.gz'), '-C', other]);
