@@ -7,7 +7,7 @@ export const CONTACT = 'hello@getbotons.com';
 export const COPY = {
   brandName: 'Botons',
   title: 'Botons · A home for your AI agents',
-  description: 'A team of Botons, each with a role. It runs your own Claude Code or Codex. You bring the brains.',
+  description: 'Your own team of AI agents, powered by the AI you already use. Give each one a role, and they get to work: on your computer, on a schedule, together.',
   skip: 'Skip to content',
   navLabel: 'Main navigation',
   nav: { features: 'Features', compare: 'How it compares', install: 'Install', github: 'GitHub' },
