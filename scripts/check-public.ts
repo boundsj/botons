@@ -26,7 +26,7 @@ export interface Problem {
 // Placeholders that are fine to publish: RFC 2606 names and a few service no-reply addresses.
 const EMAIL = /[A-Za-z0-9._%+-]+@([A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,})/g;
 const PLACEHOLDER_DOMAIN = /(^|\.)example\.(com|org|net)$|\.(test|example|invalid|localhost)$/i;
-const NOT_PERSONAL = /^botons@users\.noreply\.github\.com$|^no-?reply@(anthropic\.com|github\.com)$|^git@(github\.com|gitlab\.com|bitbucket\.org)$|@\d+x\.(png|jpe?g|webp|gif|avif|svg)$/i;
+const NOT_PERSONAL = /^hello@getbotons\.com$|^no-?reply@(anthropic\.com|github\.com)$|^git@(github\.com|gitlab\.com|bitbucket\.org)$|@\d+x\.(png|jpe?g|webp|gif|avif|svg)$/i;
 const TAILNET = /[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.ts\.net\b/gi;
 const PLACEHOLDER_TAILNET = /(^|\.)(example-tailnet|your-tailnet)\.ts\.net$/i;
 const TAILNET_IP6 = /\bfd7a:115c:a1e0:[0-9a-f:]*[0-9a-f]{3,4}\b/gi;

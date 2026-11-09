@@ -17,8 +17,9 @@ git init -q --bare "$metadata"
 (cd "$out" && GIT_DIR="$metadata" GIT_WORK_TREE="$out" npm run check:public -- --strict)
 git -C "$out" init -q -b main
 git -C "$out" add .
-GIT_AUTHOR_NAME=Botons GIT_AUTHOR_EMAIL=botons@users.noreply.github.com \
-GIT_COMMITTER_NAME=Botons GIT_COMMITTER_EMAIL=botons@users.noreply.github.com \
+# A users.noreply.github.com address links commits to whichever GitHub account owns that username.
+GIT_AUTHOR_NAME=Botons GIT_AUTHOR_EMAIL=hello@getbotons.com \
+GIT_COMMITTER_NAME=Botons GIT_COMMITTER_EMAIL=hello@getbotons.com \
   git -C "$out" -c core.hooksPath=/dev/null -c commit.gpgsign=false commit -q -m 'Initial public release'
 printf 'Snapshot: %s\nSource main: %s\n' "$out" "$source_sha"
 git -C "$out" log -1 --format='Commit: %H%nAuthor: %an <%ae>%nCommitter: %cn <%ce>'
