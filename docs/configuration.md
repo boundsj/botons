@@ -22,7 +22,7 @@ Most of what you set up day to day (access, brains, API keys, connectors, push n
 | `BOTONS_OAUTH_PUBLIC_URL` | | HTTPS origin that reaches `/oauth/callback`, for OAuth connectors ([Connectors](connectors.md#the-https-callback)) |
 | `BOTONS_OAUTH_ALLOW` | | Private hosts, addresses and CIDRs OAuth connectors may reach (a tailnet server, say) |
 | `BOTONS_APNS_KEY_FILE`, `BOTONS_APNS_KEY_ID`, `BOTONS_APNS_TEAM_ID`, `BOTONS_APNS_TOPIC` | | Push to the Botons app through Apple (see "Push to the native app"): the key's `.p8` file, its key id, your team id and the app's bundle identifier. All four, or none |
-| `BOTONS_BROWSER_APNS_DOWNLOAD_DIR` | | Temporary operator-only APNs key capture directory, mode0700, outside data/source. Off when unset. Requires a one-use session grant; see [Private APNs key import](browser.md#operator-authorized-private-apns-key-import). This does not configure APNs delivery |
+| `BOTONS_BROWSER_APNS_DOWNLOAD_DIR` | | Temporary operator-only APNs key capture directory, mode 0700, outside data/source. Off when unset. Requires a one-use session grant; see [Private APNs key import](browser.md#operator-authorized-private-apns-key-import). This does not configure APNs delivery |
 | `BOTONS_BROWSER_PATH` | a Chromium Playwright installed, else the system's | The Chromium the managed browser runs |
 | `BOTONS_BROWSER_HEADED` | | `1`: show its window, on a host with a display |
 | `BOTONS_BROWSER_SANDBOX` | `1` | `0`: run Chromium without its own sandbox, where a host can't start it even with the image's seccomp profile (the container is then its only boundary) |

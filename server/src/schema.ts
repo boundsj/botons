@@ -1090,9 +1090,10 @@ update skill_history set ${author('replaced_by')};`);
 }
 
 /**
- * 35 to 36 in place, inside openSchema's transaction: the Google and Gmail tables, empty. A connector of the owner's
- * own already named botons_gmail (Gmail's built-in name from now on) takes the first free name, with every grant,
- * policy, notice, approval and off switch of it, so none of them ever reads as Gmail's. Nothing else changes.
+ * 35 to 36 in place, inside openSchema's transaction: reserve the Google/Gmail schema and connector identifier,
+ * including when the integration is inactive, so every supported upgrade follows the same schema contract.
+ * An owner's connector named botons_gmail takes the first free name with all its grants, policies, notices,
+ * approvals and off switches, keeping it distinct from the reserved integration.
  */
 function upgradeFrom35(db: DatabaseSync): void {
   db.exec(GOOGLE_36);

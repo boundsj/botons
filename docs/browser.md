@@ -40,13 +40,13 @@ Whatever the Boton or a page does:
 
 The owner's private page and profile close on hand-back. Only cookies return to the Boton's browser, including session cookies kept in server memory. The hand-back note names the last address. The Boton reopens it and reads the freshly loaded page, including any POST-loaded controls. Private DOM, form values and request bodies do not transfer to the Boton.
 
-Use the matching web and native clients for the simplified controls. A client polling the request-list endpoint receives an empty list; a request decision returns 410 and sends nothing. Network-request approval records remain readable as informational history, but cannot authorize a browser request. No database migration is required.
+The request-list endpoint returns an empty list; a request decision returns 410 and sends nothing. Network-request approval records are informational history and cannot authorize a browser request. Site policy and private takeover govern browser access.
 
 ## Operator-authorized private APNs key import
 
 Ordinary downloads and all uploads remain unavailable. An operator can temporarily set `BOTONS_BROWSER_APNS_DOWNLOAD_DIR` to an existing mode-0700 directory owned by the server user, outside its data and source. This directory is automatically hidden from Workspace Botons. Use the server's private configuration directory; never a workspace, shared folder or repository. No client or browser tool can choose the destination or create an import grant.
 
-The active browser writes a private `session-<boton-id>-<agent-or-owner>.json` with its session identity. After approving one specific key, the operator creates `allow-once.json` in that directory, mode0600:
+The active browser writes a private `session-<boton-id>-<agent-or-owner>.json` with its session identity. After approving one specific key, the operator creates `allow-once.json` in that directory, mode 0600:
 
 ```json
 {"kind":"apns","botId":"bot_example","actor":"agent","session":"<active-session>","origin":"https://developer.apple.com","keyId":"<KEY_ID>","expiresAt":"<UTC-time-within-ten-minutes>"}
@@ -54,6 +54,6 @@ The active browser writes a private `session-<boton-id>-<agent-or-owner>.json` w
 
 Only an explicit click, pointer release or Enter in that session can capture the exact `AuthKey_<KEY_ID>.p8` from the specified HTTPS origin, including its same-origin Blob. The existing site/network/TLS and owner-device/turn restrictions still apply. The grant is claimed once and cannot follow another session. The operator checks readiness before the approved Download action; no automated retry is performed.
 
-Chromium stages only inside the private directory. Import accepts PKCS8 EC P-256, at most8KiB, with a finite timeout. The size check occurs after Chromium may have staged the download; it is not a network byte quota. Publication is mode0600 and never overwrites a file or link. Tool results contain a fixed status only; bytes never enter chat, workspace, shared files, browser results or logs. `download-receipt.json` holds status/key-id/time only. A publication failure can retain a validated private `.capture-*` recovery copy; inspect private metadata before any further action. Saved keys survive browser closure; transient staging is removed.
+Chromium stages only inside the private directory. Import accepts PKCS8 EC P-256, at most 8 KiB, with a finite timeout. The size check occurs after Chromium may have staged the download; it is not a network byte quota. Publication is mode 0600 and never overwrites a file or link. Tool results contain a fixed status only; bytes never enter chat, workspace, shared files, browser results or logs. `download-receipt.json` holds status/key-id/time only. A publication failure can retain a validated private `.capture-*` recovery copy; inspect private metadata before any further action. Saved keys survive browser closure; transient staging is removed.
 
 After successful capture, remove the temporary browser setting and any unused grant, configure the normal APNs settings and restart normally. Keep the key private outside the data backup/export. File modes do not isolate a Full computer Boton from the server's Unix user; the existing credential-access boundary still applies. A restart closes active browser pages, so review page continuity before deployment. No private browser cookies or direct HTTP workaround is needed or permitted for this import.
