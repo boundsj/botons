@@ -203,7 +203,7 @@ function main(): number {
   const checked = `${files.length} files${values.commits ? ` and ${commits} commits` : ''}${values.text?.length ? ` and ${values.text.join(', ')}` : ''}`;
   const list = terms.length ? `${terms.length} private terms from ${termsFile}` : `no private terms (${termsFile} not found)`;
   if (problems.length) {
-    console.error(`check:public: ${problems.length} problem${problems.length === 1 ? '' : 's'} in ${checked} (${list}). Replace them with placeholders (see AGENTS.md).`);
+    console.error(`check:public: ${problems.length} problem${problems.length === 1 ? '' : 's'} in ${checked} (${list}). Replace them with placeholders (see CONTRIBUTING.md).`);
     return 1;
   }
   console.log(`check:public: ${checked} clean (${list}).`);

@@ -18,7 +18,8 @@ A bad setting, or a database at another schema version, stops the server with ex
 
 ## Doctor
 
-`botons doctor` (`npm run doctor` from a checkout) checks an install and says what to fix: Node and the build, every setting, who can reach the server, the data folder and database, routine runs to check, backups, the running server, the agent CLIs and their logins (naming the Botons a missing or signed-out one leaves without answers), usage limits in force, the sandbox and the service. It only reads, and exits 1 if something must be fixed. Coding agents setting Botons up for you follow `.claude/skills/install-botons/SKILL.md`, which stops for your go-ahead before anything that exposes the server, changes the host or creates a credential.
+`botons doctor` (`npm run doctor` from a checkout) checks an install and says what to fix: Node and the build, every setting, who can reach the server, the data folder and database, routine runs to check, backups, the running server, the agent CLIs and their logins (naming the Botons a missing or signed-out one leaves without answers), usage limits in force, the sandbox and the service. It only reads, and exits 1 if something must be fixed. Review changes that expose the server, change the host or create a credential before making them.
+
 
 ## Health and logs
 

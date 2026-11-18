@@ -1,6 +1,6 @@
 name: Public
 
-# Keeps the repo publishable (see AGENTS.md): every file, plus a pull request's commits, title and
+# Keeps the repo publishable (see CONTRIBUTING.md): every file, plus a pull request's commits, title and
 # description. Runs apart from CI, on every pull request whatever it changes, so editing a description
 # re-checks only this.
 on:

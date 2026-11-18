@@ -14,7 +14,10 @@ Each says why in fixed words, what to do on the server (the sign-in or install c
 
 **Check again** runs the checks anew, at most 6 times a minute per brain (past that it shows the last check), never two at once; of two answers the page keeps the newer check of the same server run, else the later request's. `GET /api/providers` carries it as `readiness` (with `?recheck=1` for check again), and `GET /api/operations` the same fixed words without the check's text.
 
-Signing in creates a credential, so you do it yourself on the server: `botons login claude` or `botons login codex` (prefix `docker compose exec -it botons` in Docker), then **Check again**. Claude Code uses Botons' own home under `BOTONS_HOME/cli`, so a Boton doesn't start with your personal Claude instructions, skills, plugins or MCP setup. Codex uses the server account's own Codex home, shared with every other Codex client that user runs: signing in or out there changes it for all, and Codex adds that home's global `AGENTS.md` to every Codex Boton turn ([CLI homes](CLI-HOMES.md)).
+Signing in creates a credential, so you do it yourself on the server: `botons login claude` or `botons login codex` (prefix `docker compose exec -it botons` in Docker), then **Check again**. Claude Code uses Botons' own home under `BOTONS_HOME/cli`, so a Boton doesn't start with your personal Claude instructions, skills, plugins or MCP setup. Codex uses the server account's own Codex home, shared with every other Codex client that user runs: signing in or out there changes it for all, and Codex adds that home's global `AGENTS.md` to every Codex Boton turn.
+
+An explicit `CODEX_HOME` selects that shared home. If Botons is still using a sign-in kept under `BOTONS_HOME/cli/codex`, Settings and doctor say so; signing in selects the account home without copying or deleting credentials. Once selected, signing out does not revive the kept sign-in. To resume a conversation found only in the other home, Botons copies that conversation's rollout into the home in use; the conversation then also appears in that account's Codex history.
+
 
 ## Installing and updating a CLI
 
@@ -28,7 +31,7 @@ To update, use **Update now** in setup's Brains step or in Settings → Brains. 
 
 The selected CLI is saved privately in `BOTONS_HOME/managed-clis.json` and reused on restart by the server and doctor. A later, different `BOTONS_CODEX_BIN` or `BOTONS_CLAUDE_BIN` overrides it. Doctor prints the reviewed install command for a CLI that needs an update; use Brains to install and select it with clicks. A missing managed Node runtime needs `botons repair` first.
 
-CLI updates are never automatic, and Claude commands Botons starts have the publisher's own updater turned off. After an update or a guided sign-in, Brains checks the selected copy again: a compatible, signed-in copy shows Ready ✓, and **Update now** is offered only for a missing CLI, an incompatible version, or a known newer release. Earlier managed release folders are cleaned up after a successful update (once turns have drained) and at startup; the selected copy, system installs, unrelated folders and symlink targets are kept.
+CLI updates are never automatic, and Claude commands Botons starts have the publisher's own updater turned off. After an update or a guided sign-in, Brains checks the selected copy again and shows when it is signed in and ready. **Update now** is offered only for a missing CLI, an incompatible version, or a known newer release. Earlier managed release folders are cleaned up after a successful update (once turns have drained) and at startup; the selected copy, system installs, unrelated folders and symlink targets are kept.
 
 ## Codex and the Workspace sandbox
 

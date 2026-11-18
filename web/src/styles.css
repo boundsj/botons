@@ -5207,7 +5207,7 @@ button.template-chip,
   text-align: center;
 }
 
-/* The palette, written from docs/brand/board/tokens.css. Each paint slot is named for its place in the dark
+/* The palette. Each paint slot is named for its place in the dark
    ramp, and each theme sets its own value: blue-black in dark, white and cool paper in light, Boton cyan for fills
    and light, amber for what needs you. */
 :root {

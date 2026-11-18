@@ -1,8 +1,8 @@
 // The Botons marks, drawn as SVG strings: the brand Boton, the "botons" wordmark, the app icon and the favicon. They
-// are fixed art (no user data reaches them), shared by the web app and scripts/icons.ts, and match the brand board in
-// docs/brand. The wordmark is drawn with strokes, so it needs no font and looks the same everywhere.
+// are fixed art (no user data reaches them), shared by the web app and scripts/icons.ts.
+// The wordmark is drawn with strokes, so it needs no font and looks the same everywhere.
 
-/** The brand scale (docs/brand/board/tokens.css). */
+/** The brand colors shared by the marks. */
 export const BRAND = {
   cyan: '#3ee6ff',
   glass: '#0a0f1c',

@@ -16,7 +16,7 @@ New here? Start with [Install](install.md), then [First run](first-run.md).
 - [Routines](routines.md): failures, retries, time limits, cancelling, callbacks
 - [Files](files.md): previews, the trash, the inbox, the shared folder
 - [Connectors](connectors.md): Connect a service, OAuth sign-ins, local command connectors
-- [The managed browser](browser.md): a browser of its own, approval cards, signing it in
+- [The managed browser](browser.md): allowed sites, private takeover and signing in
 - [API keys](api-keys.md): Botons on your own Anthropic or OpenAI key, with spending caps
 
 ## Run
@@ -29,7 +29,6 @@ New here? Start with [Install](install.md), then [First run](first-run.md).
 ## Reference and contributing
 
 - [HTTP API](reference/http-api.md)
-- [Developing Botons](development.md), [CONTRIBUTING.md](../CONTRIBUTING.md), [AGENTS.md](../AGENTS.md)
-- [State machines and transition ownership](state-machines.md): lifecycle inventory, invariants and recovery boundaries
-- [Releasing](RELEASING.md), [CLI homes](CLI-HOMES.md), [Test runtime](TEST-RUNTIME.md), [Brand board](brand/README.md)
+- [Contributing](../CONTRIBUTING.md)
 - [Changelog](../CHANGELOG.md)
+
