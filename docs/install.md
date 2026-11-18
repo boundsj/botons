@@ -73,13 +73,13 @@ npx -y git+https://github.com/boundsj/botons.git install
 npm clones the Git dependency to launch the plain JavaScript bin. There is no `prepare` step, so npm installs no development dependencies first. The entry runs on Node 20 or 22, downloads the official Node 24, checks its SHA-256 against the official HTTPS checksum list, and uses it to install dependencies and build the web app. No GitHub token is needed.
 
 - **A branch, tag or commit:** keep the npx URL plain and pass `install --source <git-url> --ref <ref>`; the installer fetches that ref itself. Avoid `#sha` fragments in the npx URL: Node 22's npm has failed to pack Git dependencies in that form. Git sources are versioned as the package version plus the checked-out commit, so updating a branch makes a distinct release. For example, `botons upgrade --source git+https://github.com/boundsj/botons.git --ref main` saves that source for the next `botons upgrade`.
-- **A stale installer:** npx can reuse a cached installer after the branch changes. The startup line prints the running installer's commit when available and always its code fingerprint (a selected `--ref` is separate from that). To skip stale npx state without deleting any cache or install, use a fresh cache folder, which you can remove afterwards:
+- **A stale installer:** npx can reuse a cached installer after the branch changes. With `--verbose`, the startup line prints the running installer's commit when available and always its code fingerprint (a selected `--ref` is separate from that). To skip stale npx state without deleting any cache or install, use a fresh cache folder, which you can remove afterwards:
 
   ```sh
-  npm_config_cache="$(mktemp -d)" npx -y git+https://github.com/boundsj/botons.git install
+  npm_config_cache="$(mktemp -d)" npx -y git+https://github.com/boundsj/botons.git install --verbose
   ```
 
-  If npm fails before the startup line, the installer has not run.
+  With `--verbose`, if npm fails before the startup line, the installer has not run.
 
 ## macOS
 
