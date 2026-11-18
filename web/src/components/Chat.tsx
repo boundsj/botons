@@ -532,7 +532,7 @@ export function Chat(props: {
       <ReactionPickerHost bot={rowBot} />
       <WaitingBar bot={bot} />
       {(bot.paused || allPaused) && <PausedBanner bot={bot} all={allPaused} />}
-      <Composer ref={composer} bot={bot} files={files} busy={busy} onSent={() => (stick.current = true)} />
+      <Composer key={bot.id} ref={composer} bot={bot} files={files} busy={busy} onSent={() => (stick.current = true)} />
     </section>
   );
 }
@@ -1050,12 +1050,20 @@ interface ComposerHandle {
 
 function Composer(props: { ref: Ref<ComposerHandle>; bot: Bot; files: ReturnType<typeof useAttachments>; busy: boolean; onSent: () => void }) {
   const { bot, files } = props;
-  const [draft, setDraft] = useState('');
+  const [draft, changeDraft] = useState('');
+  const revision = useRef(0);
+  const setDraft = useCallback((text: string) => {
+    revision.current++;
+    changeDraft(text);
+  }, []);
   useImperativeHandle(props.ref, () => ({ setDraft, focus: () => ref.current?.focus() }), []);
-  // Another Boton's chat starts with an empty composer.
+  // A submission belongs to this chat's mounted composer, including after navigating away and back.
+  const current = useRef(true);
+  const submitting = useRef(false);
   useEffect(() => {
-    setDraft('');
-  }, [bot.id]);
+    current.current = true;
+    return () => { current.current = false; };
+  }, []);
   const providers = useStore((s) => s.providers);
   const ref = useRef<HTMLTextAreaElement>(null);
   const picker = useRef<HTMLInputElement>(null);
@@ -1083,19 +1091,27 @@ function Composer(props: { ref: Ref<ComposerHandle>; bot: Bot; files: ReturnType
 
   const send = async () => {
     const text = draft.trim();
-    if (!canSend) return;
+    if (!canSend || submitting.current) return;
+    submitting.current = true;
+    const sentRevision = revision.current;
+    const sentFiles = files.ready;
     setSending(true);
     setError(null);
     try {
-      await actions.send(bot.id, text, files.ready);
-      setDraft('');
-      files.clear();
+      await actions.send(bot.id, text, sentFiles);
+      if (!current.current) return;
+      // Typing and attaching remain available while sending: only settle the input this request took.
+      if (revision.current === sentRevision) setDraft('');
+      files.removeSent(sentFiles);
       props.onSent();
     } catch (e) {
-      setError(sendError(e));
+      if (current.current) setError(sendError(e));
     } finally {
-      setSending(false);
-      ref.current?.focus();
+      submitting.current = false;
+      if (current.current) {
+        setSending(false);
+        ref.current?.focus();
+      }
     }
   };
 

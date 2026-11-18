@@ -22,6 +22,7 @@
     "check:avatars": "node scripts/check-avatars.ts",
     "check:sidebar": "node scripts/check-sidebar.ts",
     "check:reactions": "node scripts/check-reactions.ts",
+    "check:composer": "node scripts/check-composer.ts",
     "check:timestamps": "node scripts/check-timestamps.ts",
     "check:operations": "node scripts/check-operations.ts",
     "check:recovery": "node scripts/check-recovery.ts",

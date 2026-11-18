@@ -30,5 +30,6 @@ New here? Start with [Install](install.md), then [First run](first-run.md).
 
 - [HTTP API](reference/http-api.md)
 - [Developing Botons](development.md), [CONTRIBUTING.md](../CONTRIBUTING.md), [AGENTS.md](../AGENTS.md)
+- [State machines and transition ownership](state-machines.md): lifecycle inventory, invariants and recovery boundaries
 - [Releasing](RELEASING.md), [CLI homes](CLI-HOMES.md), [Test runtime](TEST-RUNTIME.md), [Brand board](brand/README.md)
 - [Changelog](../CHANGELOG.md)

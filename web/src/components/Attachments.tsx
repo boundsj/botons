@@ -90,17 +90,24 @@ export function useAttachments(botId: string) {
     setItems((xs) => xs.filter((x) => x.id !== id));
   };
 
-  const clear = () => {
-    for (const item of items) forget(item);
-    ids.current.clear();
-    setItems([]);
+  /** Settle the submitted snapshot; files attached while its request was pending belong to the next message. */
+  const removeSent = (sent: readonly FileRef[]) => {
+    const paths = new Set(sent.map((file) => file.path));
+    const removed = new Set<number>();
+    for (const item of items) {
+      if (!item.ref || !paths.has(item.ref.path)) continue;
+      forget(item);
+      ids.current.delete(item.id);
+      removed.add(item.id);
+    }
+    setItems((xs) => xs.filter((item) => !removed.has(item.id)));
   };
 
   return {
     items,
     add,
     remove,
-    clear,
+    removeSent,
     busy: items.some((x) => !x.ref && !x.error),
     ready: items.flatMap((x) => (x.ref ? [x.ref] : [])),
   };

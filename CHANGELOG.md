@@ -4,6 +4,8 @@ What changes for people running Botons. Release notes are written from this when
 
 ## Unreleased
 
+- **Reliable async completion.** Slow chat sends preserve newer drafts and attachments. Browser handback records its pending Boton wake message with the completed card in one transaction. Shutdown cancels turns still preparing connectors before a provider can start.
+
 - **Teams.** Give Botons shared work with a lead, seats, assignments, threads, bounded check-ins and owner escalations. Teams share no credentials or access grants. The database upgrades to schema 39 after a backup. The team instructions change provider session keys, so Botons start fresh provider sessions with their saved chat context.
 
 - **Browser site boundaries.** Pages can use normal HTTP methods within allowed sites without per-request approval cards. Site restrictions, private-network checks and the browser kill switch remain enforced. Sensitive fields still require the owner's private takeover. Review the allowed sites before enabling a Boton's browser.

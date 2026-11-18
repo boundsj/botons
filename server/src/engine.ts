@@ -660,9 +660,11 @@ export class Engine {
 
   interruptAll(): void {
     for (const { controller } of this.#summaries.values()) controller.abort(INTERRUPTED);
-    for (const { turn } of this.#jobs.values()) {
-      if (!turn || turn.signal.aborted) continue;
-      turn.abort(INTERRUPTED);
+    for (const job of this.#jobs.values()) {
+      // A job that read its work may still be setting up connectors, before it has a turn controller. It must not
+      // start an agent after the shutdown interrupt. Slot waiters have read nothing and keep their work queued.
+      if (!job.read || job.aborted || job.turn?.signal.aborted) continue;
+      this.#abortTurn(job, INTERRUPTED);
       this.#interruptedCount++;
     }
   }

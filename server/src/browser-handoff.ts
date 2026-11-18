@@ -85,17 +85,22 @@ export class BrowserHandoffs {
    * page is (origin and path only), and the Boton is woken with a note saying so. False if there was none.
    */
   handedBack(botId: string, page: string | null, how: string): boolean {
-    const m = this.open(botId);
-    if (!m || handoffOf(m)!.state !== 'taken') return false;
-    const done = this.#step(m, { type: 'hand-back', at: nowIso(), page, how });
-    if (!done) return false;
     const store = this.#deps.store;
-    if (!store.hasBot(botId)) return true;
-    const note = handBackNote(store.getSettings().ownerName, handoffOf(done)!);
-    store.addMessage(botId, 'user', note, { kind: 'browser.handed_back', handoffId: m.id }, true);
-    log.info('browser handoff handed back', { botId, handoffId: m.id, how });
-    this.#deps.wake(botId);
-    return true;
+    // The terminal card and its pending note commit together: recovery must still find a taken card if the note fails.
+    return store.atomically(() => {
+      const m = this.open(botId);
+      if (!m || handoffOf(m)!.state !== 'taken') return false;
+      const done = this.#step(m, { type: 'hand-back', at: nowIso(), page, how });
+      if (!done) return false;
+      if (!store.hasBot(botId)) return true;
+      const note = handBackNote(store.getSettings().ownerName, handoffOf(done)!);
+      store.addMessage(botId, 'user', note, { kind: 'browser.handed_back', handoffId: m.id }, true);
+      store.afterCommit(() => {
+        log.info('browser handoff handed back', { botId, handoffId: m.id, how });
+        this.#deps.wake(botId);
+      });
+      return true;
+    });
   }
 
   /** The Boton's browser was turned off (or the Boton is going): a request still waiting can't be taken any more. */

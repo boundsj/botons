@@ -3,6 +3,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { type BrowserHandoff, HANDOFF_REASON_MAX, HANDOFF_TTL_MS, handBackNote, handoffReason, handoffStep, requestHandoff } from '../../shared/handoff.ts';
+import type { ServerEvent } from '../../shared/types.ts';
 import { BrowserHandoffs } from '../src/browser-handoff.ts';
 import { actionInput, TOOLS } from '../src/cli/browser-mcp.ts';
 import { loadConfig } from '../src/config.ts';
@@ -64,13 +65,14 @@ test('browser_handoff is a tool that takes a reason, sent to the server as the h
 
 function setup() {
   const home = tempDir('botons-handoff-');
-  const store = new Store(loadConfig({ BOTONS_HOME: home, BOTONS_HOST: '127.0.0.1', BOTONS_NO_TAILSCALE: '1' }), new EventHub(), () => ({ state: 'idle', activity: null, since: null }));
+  const hub = new EventHub();
+  const store = new Store(loadConfig({ BOTONS_HOME: home, BOTONS_HOST: '127.0.0.1', BOTONS_NO_TAILSCALE: '1' }), hub, () => ({ state: 'idle', activity: null, since: null }));
   const bot = store.createBot({ name: 'Kevin', provider: 'mock' } as never, new Set(['mock']), 'mock');
   const pushes: PushRequest[] = [];
   const woken: string[] = [];
   const handoffs = new BrowserHandoffs({ store, push: async (r) => void pushes.push(r), wake: (id) => void woken.push(id) });
   const card = () => handoffs.open(bot.id)?.meta?.browserHandoff;
-  return { store, bot, pushes, woken, handoffs, card };
+  return { store, bot, pushes, woken, handoffs, card, hub };
 }
 
 test('asking posts a card and a push; taking it over and handing it back move the card, and the hand-back wakes the Boton with where the page is', () => {
@@ -134,4 +136,63 @@ test('recovery reaches every open handoff: a taken one behind many expired reque
   assert.equal(store.findMessage(taken.id)!.meta!.browserHandoff!.state, 'handed-back');
   assert.deepEqual(woken, [bot.id]);
   assert.equal(store.openHandoffs(bot.id).length, 0);
+});
+
+test('a failed hand-back note leaves the handoff taken and recovery delivers it exactly once', (t) => {
+  const { store, bot, woken, handoffs, hub } = setup();
+  t.after(() => store.db.close());
+  const { message } = handoffs.request(bot.id, 'Sign in to example.com', null, 'Phone');
+  const events: ServerEvent[] = [];
+  t.after(hub.subscribe((event) => events.push(event)));
+  store.db.exec(`create trigger refuse_handback before insert on messages
+    when json_extract(new.meta, '$.kind') = 'browser.handed_back'
+    begin select raise(abort, 'hand-back note refused'); end`);
+
+  assert.throws(() => handoffs.handedBack(bot.id, 'https://example.com/home', 'finished'), /hand-back note refused/);
+  assert.equal(store.findMessage(message.id)!.meta!.browserHandoff!.state, 'taken');
+  assert.equal(store.hasPendingChat(bot.id), false);
+  assert.deepEqual(events, [], 'no rolled-back transition reaches listeners');
+  assert.deepEqual(woken, []);
+
+  store.db.exec('drop trigger refuse_handback');
+  handoffs.recover();
+  handoffs.recover();
+  assert.equal(handoffs.handedBack(bot.id, null, 'finished'), false);
+  assert.equal(store.findMessage(message.id)!.meta!.browserHandoff!.state, 'handed-back');
+  const notes = store.listMessages(bot.id).filter((m) => m.meta?.kind === 'browser.handed_back');
+  assert.equal(notes.length, 1);
+  assert.equal(notes[0].meta!.handoffId, message.id);
+  assert.equal(store.hasPendingChat(bot.id), true);
+  assert.deepEqual(woken, [bot.id]);
+});
+
+test('a hand-back wakes only after its outer transaction commits and never after rollback', (t) => {
+  const { store, bot, woken, handoffs, hub } = setup();
+  t.after(() => store.db.close());
+  const { message } = handoffs.request(bot.id, 'Sign in to example.com', null, 'Phone');
+  const events: ServerEvent[] = [];
+  t.after(hub.subscribe((event) => events.push(event)));
+
+  assert.throws(() => store.atomically(() => {
+    assert.equal(handoffs.handedBack(bot.id, 'https://example.com/home', 'finished'), true);
+    assert.deepEqual(woken, [], 'wake waits for the outer commit');
+    assert.deepEqual(events, []);
+    throw new Error('outer operation refused');
+  }), /outer operation refused/);
+  assert.equal(store.findMessage(message.id)!.meta!.browserHandoff!.state, 'taken');
+  assert.equal(store.hasPendingChat(bot.id), false);
+  assert.deepEqual(woken, []);
+  assert.deepEqual(events, []);
+
+  store.atomically(() => {
+    assert.equal(handoffs.handedBack(bot.id, 'https://example.com/home', 'finished'), true);
+    assert.equal(handoffs.handedBack(bot.id, null, 'finished'), false);
+    assert.deepEqual(woken, []);
+    assert.deepEqual(events, []);
+  });
+  assert.equal(store.findMessage(message.id)!.meta!.browserHandoff!.state, 'handed-back');
+  assert.equal(store.listMessages(bot.id).filter((m) => m.meta?.kind === 'browser.handed_back').length, 1);
+  assert.equal(store.hasPendingChat(bot.id), true);
+  assert.deepEqual(woken, [bot.id]);
+  assert.ok(events.length > 0);
 });
