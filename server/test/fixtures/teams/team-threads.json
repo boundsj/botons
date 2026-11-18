@@ -1,0 +1,76 @@
+[
+  {
+    "id": "thr_schema",
+    "teamId": "team_atlas",
+    "teamName": "Atlas",
+    "itemId": "item_schema",
+    "itemTitle": "Map the export to the new schema",
+    "subject": "Map the export to the new schema",
+    "participants": [
+      {
+        "botId": "bot_kevin",
+        "name": "Kevin"
+      },
+      {
+        "botId": "bot_stuart",
+        "name": "Stuart"
+      }
+    ],
+    "messageCount": 2,
+    "lastSeq": 31,
+    "lastAt": "2026-11-16T10:20:00.000Z",
+    "last": {
+      "fromName": "Stuart",
+      "toName": "Kevin",
+      "text": "Mapped 14 of 20 tables; the rest need the key."
+    },
+    "lastDelivery": {
+      "state": "handled",
+      "outcome": "replied",
+      "waitingOn": null,
+      "chatMessageId": "msg_req",
+      "botId": "bot_stuart",
+      "queuedAt": "2026-11-16T09:30:00.000Z",
+      "at": "2026-11-16T10:20:00.000Z"
+    },
+    "unread": true,
+    "closedAt": null
+  },
+  {
+    "id": "thr_direct",
+    "teamId": null,
+    "teamName": null,
+    "itemId": null,
+    "itemTitle": null,
+    "subject": "Which timezone does the report use?",
+    "participants": [
+      {
+        "botId": "bot_dave",
+        "name": "Dave"
+      },
+      {
+        "botId": "bot_bob",
+        "name": "Bob"
+      }
+    ],
+    "messageCount": 1,
+    "lastSeq": 25,
+    "lastAt": "2026-11-16T10:00:00.000Z",
+    "last": {
+      "fromName": "Dave",
+      "toName": "Bob",
+      "text": "Which timezone does the report use?"
+    },
+    "lastDelivery": {
+      "state": "queued",
+      "outcome": null,
+      "waitingOn": "paused",
+      "chatMessageId": null,
+      "botId": "bot_bob",
+      "queuedAt": "2026-11-16T10:00:00.000Z",
+      "at": "2026-11-16T10:00:00.000Z"
+    },
+    "unread": false,
+    "closedAt": null
+  }
+]

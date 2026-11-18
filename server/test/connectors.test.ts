@@ -56,6 +56,13 @@ async function runRoutine(routine: Routine, trigger: 'webhook' | 'manual' | 'tes
   });
 }
 
+test('Google account and Gmail endpoints are unavailable and absent from the catalog', async () => {
+  for (const [method, path] of [['GET', '/api/google'], ['PUT', '/api/google/client'], ['POST', '/api/google/accounts/connect'], ['GET', '/api/gmail/grants']]) {
+    assert.equal((await call(method, path, method === 'GET' ? undefined : {})).status, 404, path);
+  }
+  assert.ok(!app.connectors.catalog().connectors?.some((c) => c.id === 'lib:botons_gmail'));
+});
+
 test('the library keeps env and header values write-only: never in any response', async () => {
   const github = await addServer({ name: 'github', transport: 'stdio', command: 'npx', args: ['-y', '@modelcontextprotocol/server-github'], env: { GITHUB_PERSONAL_ACCESS_TOKEN: SECRET, DEBUG: '1' } });
   assert.deepEqual(github.envKeys, ['DEBUG', 'GITHUB_PERSONAL_ACCESS_TOKEN']);

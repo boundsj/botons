@@ -14,7 +14,7 @@ Each says why in fixed words, what to do on the server (the sign-in or install c
 
 **Check again** runs the checks anew, at most 6 times a minute per brain (past that it shows the last check), never two at once; of two answers the page keeps the newer check of the same server run, else the later request's. `GET /api/providers` carries it as `readiness` (with `?recheck=1` for check again), and `GET /api/operations` the same fixed words without the check's text.
 
-Signing in creates a credential, so you do it yourself on the server: `botons login claude` or `botons login codex` (prefix `docker compose exec -it botons` in Docker), then **Check again**. Botons keeps its own CLI homes under `BOTONS_HOME/cli`, so a Boton doesn't start with your personal CLI instructions, skills, plugins or MCP setup ([CLI homes](CLI-HOMES.md)).
+Signing in creates a credential, so you do it yourself on the server: `botons login claude` or `botons login codex` (prefix `docker compose exec -it botons` in Docker), then **Check again**. Claude Code uses Botons' own home under `BOTONS_HOME/cli`, so a Boton doesn't start with your personal Claude instructions, skills, plugins or MCP setup. Codex uses the server account's own Codex home, shared with every other Codex client that user runs: signing in or out there changes it for all, and Codex adds that home's global `AGENTS.md` to every Codex Boton turn ([CLI homes](CLI-HOMES.md)).
 
 ## Installing and updating a CLI
 

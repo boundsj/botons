@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { ICONS, PNG_ICONS } from '../../scripts/icons.ts';
+import { ICONS, MASKABLE, PNG_ICONS } from '../../scripts/icons.ts';
 import { appIconInner, logoSvg, MARK_VIEWBOX, markInner } from '../../shared/brand.ts';
 
 const repo = join(import.meta.dirname, '../..');
@@ -18,6 +18,10 @@ test('the icons in web/public are the brand marks (node scripts/icons.ts writes 
   }
   const manifest = JSON.parse(read('web/public/manifest.webmanifest'));
   assert.deepEqual(manifest.icons.map((i: { src: string; purpose: string }) => `${i.src} ${i.purpose}`), ['/icon.svg any', '/icon-192.png maskable', '/icon-512.png maskable']);
+  // The maskable PNGs are drawn with the key inside the circle any mask keeps; the touch icon and the SVG full size.
+  assert.deepEqual([...MASKABLE].sort(), manifest.icons.filter((i: { purpose: string }) => i.purpose === 'maskable').map((i: { src: string }) => i.src.slice(1)).sort());
+  assert.match(appIconInner('m', { safe: true }), /scale\(\.76\)/);
+  assert.doesNotMatch(ICONS['icon.svg'], /scale\(\.76\)/);
   const html = read('web/index.html');
   assert.match(html, /<link rel="icon" href="\/favicon.svg" type="image\/svg\+xml" \/>/);
   assert.match(html, /<link rel="apple-touch-icon" href="\/apple-touch-icon.png" \/>/);
@@ -25,7 +29,7 @@ test('the icons in web/public are the brand marks (node scripts/icons.ts writes 
 });
 
 test('each mark keeps its gradient ids to its own uid, so two on one page never share one', () => {
-  for (const draw of [markInner, (uid: string) => appIconInner(uid), (uid: string) => logoSvg({ uid })]) {
+  for (const draw of [markInner, (uid: string) => appIconInner(uid), (uid: string) => appIconInner(uid, { rounded: false, safe: true }), (uid: string) => logoSvg({ uid })]) {
     const ids = (uid: string) => [...draw(uid).matchAll(/id="([^"]+)"/g)].map((m) => m[1]);
     assert.ok(ids('a').length > 0);
     for (const id of ids('a')) assert.ok(id.startsWith('a'), id);
@@ -53,19 +57,20 @@ function lum(hex: string): number {
 }
 const ratio = (a: string, b: string) => (Math.max(lum(a), lum(b)) + 0.05) / (Math.min(lum(a), lum(b)) + 0.05);
 
-/** The theme's tokens as hex: the dark :root, or it with the light block on top, with var(--paint-…) resolved. */
-function theme(name: 'dark' | 'light'): Record<string, string> {
+/** The theme's tokens as hex: the dark :root, or it with the light or the ultra black block on top, with var(--paint-…) resolved. */
+function theme(name: 'dark' | 'light' | 'black'): Record<string, string> {
   const css = read('web/src/styles.css');
   const block = (start: number) => Object.fromEntries([...css.slice(start, css.indexOf('}', start)).matchAll(/(--[\w-]+):\s*([^;]+);/g)].map((m) => [m[1], m[2].trim()]));
   const vars: Record<string, string> = {};
   for (const m of css.matchAll(/^:root \{/gm)) Object.assign(vars, block(m.index));
   if (name === 'light') Object.assign(vars, block(css.indexOf(':root[data-theme="light"] {')));
+  if (name === 'black') Object.assign(vars, block(css.indexOf(':root[data-dark-style="black"] {')));
   const resolve = (v: string): string => (v.startsWith('var(') ? resolve(vars[v.slice(4, -1)]) : v);
   return Object.fromEntries(Object.entries(vars).filter(([, v]) => /^(#|var\()/.test(v)).map(([k, v]) => [k, resolve(v)]));
 }
 
-test('the palette meets its contrast targets in both themes', () => {
-  for (const name of ['dark', 'light'] as const) {
+test('the palette meets its contrast targets in every theme', () => {
+  for (const name of ['dark', 'light', 'black'] as const) {
     const t = theme(name);
     const check = (fg: string, bg: string, min: number) => {
       assert.match(t[fg], /^#[0-9a-f]{3}$|^#[0-9a-f]{6}$/i, `${name} ${fg} is an opaque hex`);
@@ -90,4 +95,21 @@ test('the palette meets its contrast targets in both themes', () => {
   // Boton cyan is a fill in both themes: the same family, never swapped for a dark text cyan in light.
   assert.equal(theme('dark')['--accent'], '#3ee6ff');
   assert.equal(theme('light')['--accent'], '#17c7e4');
+});
+
+test('ultra black is true black under the dark theme: black page and sidebar, surfaces that still step up, the rest as dark', () => {
+  const dark = theme('dark');
+  const black = theme('black');
+  assert.equal(black['--bg'], '#000000');
+  assert.equal(black['--bg-side'], '#000000');
+  // Each surface is a little lighter than what sits under it, so cards, inputs and menus stay apart from the page.
+  const steps = ['--bg', '--surface', '--surface-2', '--surface-3'].map((t) => lum(black[t]));
+  for (let i = 1; i < steps.length; i++) assert.ok(steps[i] > steps[i - 1], `${i}: ${steps.join(' < ')}`);
+  assert.ok(ratio(black['--surface'], black['--bg']) >= 1.1);
+  // Text, accents and states are dark's own.
+  for (const t of ['--text', '--muted', '--faint', '--accent', '--accent-text', '--accent-edge', '--danger', '--ok', '--warn', '--user', '--user-ink']) assert.equal(black[t], dark[t], t);
+  // Only paints the dark ramp defines are changed, so ultra black never invents a token dark doesn't have.
+  const css = read('web/src/styles.css');
+  const start = css.indexOf(':root[data-dark-style="black"] {');
+  for (const [, name] of css.slice(start, css.indexOf('}', start)).matchAll(/(--[\w-]+):/g)) assert.ok(name in dark, name);
 });

@@ -7,9 +7,14 @@ mkdir -p "$out"
 out=$(cd "$out" && pwd -P)
 if [ -n "$(ls -A "$out")" ]; then echo 'Destination must be empty' >&2; exit 1; fi
 source_sha=$(git -C "$root" rev-parse refs/remotes/origin/main)
-git -C "$root" archive "$source_sha" | tar -x -C "$out"
+# ios/ holds the native app, which stays private: it never enters an export, whatever origin/main holds.
+git -C "$root" archive "$source_sha" -- . ':(exclude)ios' | tar -x -C "$out"
 # Exclude local agent settings; contributor instructions and generated brand assets are public.
 rm -f "$out/.claude/settings.local.json" "$out/.mcp.json"
+# Native sources anywhere else (another casing, a nested folder) stop the export instead of shipping.
+native=$(cd "$out" && find . \( -iname ios -o -iname '*.swift' -o -iname '*.xcodeproj' -o -iname '*.xcworkspace' \
+  -o -iname '*.pbxproj' -o -iname '*.xcconfig' -o -iname '*.entitlements' -o -iname Podfile \) -print)
+if [ -n "$native" ]; then printf 'Native app sources must stay private; found in the export:\n%s\n' "$native" >&2; exit 1; fi
 # A disposable external index lets check:public enumerate the export before its new repo exists.
 metadata=$(mktemp -d)
 trap 'rm -rf "$metadata"' EXIT

@@ -1,0 +1,79 @@
+[
+  {
+    "seq": 30,
+    "id": "tmsg_assign",
+    "threadId": "thr_schema",
+    "teamId": "team_atlas",
+    "itemId": "item_schema",
+    "itemGen": 1,
+    "kind": "request",
+    "from": {
+      "botId": "bot_kevin",
+      "name": "Kevin"
+    },
+    "to": {
+      "botId": "bot_stuart",
+      "name": "Stuart"
+    },
+    "text": "Please map the export to the new schema. Mark it done with the mapping file.",
+    "hop": 1,
+    "inReplyTo": null,
+    "stale": false,
+    "createdAt": "2026-11-16T09:30:00.000Z",
+    "delivery": {
+      "state": "handled",
+      "outcome": "replied",
+      "waitingOn": null,
+      "chatMessageId": "msg_req",
+      "botId": "bot_stuart",
+      "queuedAt": "2026-11-16T09:30:00.000Z",
+      "at": "2026-11-16T10:20:00.000Z"
+    }
+  },
+  {
+    "seq": 31,
+    "id": "tmsg_reply",
+    "threadId": "thr_schema",
+    "teamId": "team_atlas",
+    "itemId": "item_schema",
+    "itemGen": 1,
+    "kind": "reply",
+    "from": {
+      "botId": "bot_stuart",
+      "name": "Stuart"
+    },
+    "to": {
+      "botId": "bot_kevin",
+      "name": "Kevin"
+    },
+    "text": "Mapped 14 of 20 tables; the rest need the key.",
+    "hop": 1,
+    "inReplyTo": "tmsg_assign",
+    "stale": false,
+    "createdAt": "2026-11-16T10:20:00.000Z",
+    "delivery": null
+  },
+  {
+    "seq": 32,
+    "id": "tmsg_system",
+    "threadId": "thr_schema",
+    "teamId": "team_atlas",
+    "itemId": "item_schema",
+    "itemGen": 1,
+    "kind": "system",
+    "from": {
+      "botId": null,
+      "name": "Botons"
+    },
+    "to": {
+      "botId": null,
+      "name": ""
+    },
+    "text": "Stuart's turn ended without marking item_schema done or blocked.",
+    "hop": 1,
+    "inReplyTo": null,
+    "stale": false,
+    "createdAt": "2026-11-16T10:20:00.000Z",
+    "delivery": null
+  }
+]

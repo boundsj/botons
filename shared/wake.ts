@@ -42,6 +42,7 @@ export const TURN_ACTIVITY: ReadonlySet<string> = new Set([
   'routine.deleted',
   'skill.created',
   'skill.updated',
+  'team.update',
 ]);
 
 /** Whether a message may be left out of the transcript as quiet: never the owner's, an error, an approval or a card. */
@@ -159,6 +160,10 @@ export function wakeLabel(m: Pick<Message, 'text' | 'meta'>): WakeLabel {
     }
     case 'reaction.followup':
       return { text: `Follow-up to your ${meta.emoji ?? ''} reaction`.replace('  ', ' '), detail: 'Reaction follow-up', warn: false };
+    case 'team.checkin': {
+      const team = meta.teamName?.trim();
+      return { text: team ? `Team check-in: ${team}` : 'Team check-in', detail: meta.teamId ? `Team ${meta.teamId}` : 'Team check-in', warn: false };
+    }
   }
   return { text: meta?.fromBotId ? `Message from ${from}` : 'Automatic wake-up', detail: 'Automatic wake-up', warn: false };
 }

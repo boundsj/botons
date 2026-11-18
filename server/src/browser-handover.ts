@@ -3,27 +3,9 @@ import { HANDOVER_KEYS } from '../../shared/util.ts';
 import { HttpError } from './store.ts';
 
 /*
- * The owner's handover of a Boton's browser, as pure parts: what an input may be, and the limits on how often. The
- * owner signs a Boton's browser in (or looks at a page) themselves, from one paired device, while the Boton can't
- * use it; browser.ts runs it, as a live view (a screencast) the owner drives with fixed inputs a person makes: open an
- * address, back, forward, reload; the pointer's moves, presses and clicks at a point; the wheel; text typed or pasted;
- * one key, with Shift, or with Control only for editing (EDIT_COMBOS); a copy of the owner's own selection; the page's
- * size following the view. Nothing runs the page's script for it, reads its cookies or reaches Chromium's DevTools for
- * the page: the one read is a copy, of the selection alone (never from a password field), in a world of its own the
- * page's script can't reach, and its text goes only to the device that drives it. Typed and pasted text goes into the
- * page and nowhere else: never into a message, the log, the journal, the audit or an error, which say only that text
- * was typed.
- *
- * Network authority while the owner has the browser: it loads reads (GET, HEAD) from the Boton's sites as at any
- * time, and sends what a page sends otherwise (a sign-in form's POST, a script's) only to those sites and only within
- * INTENT_MS of the owner's own press, click, key, typing or paste (never a move, a wheel or a resize): a page's
- * background request (a poll, a beacon) made at any other moment is refused, and nothing goes after the owner
- * finishes. Opening an address, going back or forward and reloading
- * end that moment at once and cut what the page had open, so what a page sends as it unloads is refused too. The
- * proxy decides this for every request as it leaves, HTTPS included (it ends that browser's TLS itself), whatever in
- * Chromium sent it; Chromium's routing also refuses, where it sees them, writes from a worker or from a page the
- * owner is not on. Within the moment the proxy can't tell which of them sent a write: it goes, and is journaled.
- * The Boton has no say in any of it: its browser tools are refused for as long as the handover lasts.
+ * Owner takeover inputs are fixed UI actions from the paired device that owns the session. The Boton cannot
+ * drive it, inspect its private page or access its input. Normal page requests follow the allowed-site policy.
+ * Hand-back closes the private browser and deletes its profile; only cookies continue in the Boton's browser.
  */
 
 /** The page's size until the owner's view says otherwise: clicks are in these coordinates, and frames are this size. */
@@ -36,8 +18,6 @@ export const MAX_OWNER_TEXT = 1000;
 export const MAX_PASTE = 5000;
 /** The most of a selection one copy gives back to the owner's device. */
 export const MAX_COPY = 20_000;
-/** After the owner's click, key or typing, how long what the page sends because of it may go. */
-export const INTENT_MS = 10_000;
 /** A handover with no input and no view open for this long ends on its own, and the Boton has its browser back. */
 export const IDLE_MS = 10 * 60_000;
 /** And it ends after this long, whatever happens: a forgotten tab doesn't keep the Boton's browser. */

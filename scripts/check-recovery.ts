@@ -10,7 +10,7 @@
 // - the restored server cold-starts with the same device token and has every Boton, look, group, pin, skill, grant,
 //   message, memory, routine, webhook key, session and index; the turn cut off mid-way ends as interrupted, Boton
 //   tokens are gone, and chat and the old webhook key work in the new folder;
-// - a populated schema 34 backup (the release before) restores, upgrades at the first start after its own backup,
+// - a populated schema 35 backup (the release before) restores, upgrades at the first start after its own backup,
 //   keeps its rows and pins, pairs a new device, and ends with the schema a new database gets;
 // - both backups rehearse from the app (current, and upgraded in the copy), and no backup changes by a byte;
 // - a data folder this user cannot write: the restore and the server refuse up front with what to do (the server with
@@ -28,7 +28,6 @@ import { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
 import type { Bot, ConnectorAccess, Memory, Message, OperationsStatus, PairingRequest, Routine, RoutineRun, SidebarLayout, Skill, SkillAccess } from '../shared/types.ts';
 import { randomLook } from '../shared/look.ts';
-import { RENAMED } from '../shared/legacy-names.mjs';
 import { seeded } from '../shared/seeded.ts';
 import { stamp } from '../server/src/backup.ts';
 import { openSchema, SCHEMA_VERSION } from '../server/src/schema.ts';
@@ -247,8 +246,8 @@ function priorBackup(dir: string) {
   msg.run('msg_reset', 'bot_kevin', 'event', 'Started a fresh conversation', JSON.stringify({ kind: 'session.reset' }), at(10));
   msg.run('msg_decide', 'bot_kevin', 'user', 'We ship on Friday.', JSON.stringify({ pinned: { at: at(11) } }), at(11));
   msg.run('msg_brief', 'bot_kevin', 'bot', 'The brief.', JSON.stringify({ routineId: 'rt_brief', routineName: 'Brief' }), at(12));
-  db.prepare('update bots set connections = ? where id = ?').run(JSON.stringify([`lib:${RENAMED.botons_browser}`]), 'bot_kevin');
-  db.prepare('update skills set created_by = ?, updated_by = ?').run(JSON.stringify({ kind: RENAMED.boton, id: 'bot_kevin' }), JSON.stringify({ kind: RENAMED.boton, id: 'bot_kevin' }));
+  db.prepare('update bots set connections = ? where id = ?').run(JSON.stringify(['lib:botons_browser']), 'bot_kevin');
+  db.prepare('update skills set created_by = ?, updated_by = ?').run(JSON.stringify({ kind: 'boton', id: 'bot_kevin' }), JSON.stringify({ kind: 'boton', id: 'bot_kevin' }));
   const counts: Record<string, number> = {};
   for (const { name } of db.prepare("select name from sqlite_master where type = 'table' and name not like 'sqlite_%'").all()) counts[String(name)] = Number(db.prepare(`select count(*) as n from "${name}"`).get()!.n);
   db.close();
@@ -439,7 +438,7 @@ async function main() {
   });
   check(same(hashTree(backupDir), backupHash), 'the backup restored from is unchanged, byte for byte');
 
-  // 5. The release before: a populated schema 34 backup restored, upgraded at the first start.
+  // 5. The release before: a populated schema 35 backup restored, upgraded at the first start.
   log(`— a schema ${SCHEMA_VERSION - 1} backup onto another new machine`);
   const older = join(tmp, 'older-host', 'botons');
   const restoredOld = cli('restore.ts', older, [prior, '--yes']);
@@ -461,16 +460,11 @@ async function main() {
   await srv.stop();
   readDb(join(older, 'botons.db'), (db) => {
     check(Number(db.prepare('pragma user_version').get()!.user_version) === SCHEMA_VERSION && same(schemaOf(db), freshSchema), `upgraded to schema ${SCHEMA_VERSION}: the schema a new database gets, indexes included`);
-    const expected = (name: string, rows: unknown) => (rows as Record<string, unknown>[]).map((row) => {
-      if (name === 'bots') return { ...row, connections: String(row.connections).replace(JSON.stringify(`lib:${RENAMED.botons_browser}`), JSON.stringify('lib:botons_browser')) };
-      if (name === 'skills') return { ...row, created_by: String(row.created_by).replace(JSON.stringify(RENAMED.boton), JSON.stringify('boton')), updated_by: String(row.updated_by).replace(JSON.stringify(RENAMED.boton), JSON.stringify('boton')) };
-      return row;
-    });
-    const kept = priorRows.filter(([name]) => !['auth_tokens', 'audit_events', 'pairing_requests', 'settings'].includes(String(name))).every(([name, before]) => same(db.prepare(`select * from "${name}" order by rowid`).all(), expected(String(name), before)));
-    check(kept, 'every row survives with only the author kinds and browser grants renamed (looks, sessions, pins, reset, routine, skill, group)');
+    const kept = priorRows.filter(([name]) => !['auth_tokens', 'audit_events', 'pairing_requests', 'settings'].includes(String(name))).every(([name, before]) => same(db.prepare(`select * from "${name}" order by rowid`).all(), before));
+    check(kept, 'every row survives (looks, sessions, pins, reset, routine, skill, group)');
     const grants = db.prepare('select connections from bots where id = ?').get('bot_kevin')!;
     const author = db.prepare('select created_by, updated_by from skills where name = ?').get('weekly')!;
-    check(same(JSON.parse(String(grants.connections)), ['lib:botons_browser']) && [author.created_by, author.updated_by].every((a) => same(JSON.parse(String(a)), { kind: 'boton', id: 'bot_kevin' })), 'the restored browser grant and skill authors use the current names');
+    check(same(JSON.parse(String(grants.connections)), ['lib:botons_browser']) && [author.created_by, author.updated_by].every((a) => same(JSON.parse(String(a)), { kind: 'boton', id: 'bot_kevin' })), 'the restored browser grant and skill authors are as they were');
   });
   check(same(hashTree(prior), priorHash), `the schema ${SCHEMA_VERSION - 1} backup is unchanged, byte for byte`);
 

@@ -679,11 +679,13 @@ function runLabel(run: RoutineRun): string {
 }
 
 const PUSH_REASON: Record<NotifyDelivery['reason'], string> = {
+  message: 'for a new message',
   failure: 'about the failure',
   result: 'with the result',
   notify: 'from botons notify',
   approval: 'about an approval request',
   test: 'test',
+  team: 'about a team',
 };
 
 function callbackText(d: CallbackDelivery): string {
@@ -693,7 +695,8 @@ function callbackText(d: CallbackDelivery): string {
 }
 
 function deliveryText(d: NotifyDelivery): string {
-  return d.ok ? `Pushed to your phone ${PUSH_REASON[d.reason]}` : `Push ${PUSH_REASON[d.reason]} failed: ${d.error ?? 'unknown error'}`;
+  const app = d.channel === 'apns';
+  return d.ok ? `Pushed to ${app ? 'the Botons app' : 'your phone'} ${PUSH_REASON[d.reason]}` : `Push ${app ? 'to the app ' : ''}${PUSH_REASON[d.reason]} failed: ${d.error ?? 'unknown error'}`;
 }
 
 const NOTIFY_OPTIONS: { value: NotifyPolicy; label: (name: string) => string }[] = [

@@ -6,22 +6,24 @@ import type { CliCopy } from './versions.ts';
 
 export type AccessLevel = 'workspace' | 'host';
 
-export type BotonShape = 'round' | 'pill' | 'key';
+export type BotonShape = 'round' | 'pill' | 'key' | 'tall' | 'stack' | 'dome' | 'hex' | 'gear' | 'cloud' | 'saucer';
 export type BotonShell = 'snow' | 'steel' | 'graphite' | 'sun' | 'signal' | 'cobalt' | 'violet' | 'teal';
 export type BotonGlow = 'cyan' | 'pink' | 'lime' | 'amber' | 'violet' | 'ice';
-export type BotonEyes = 'dots' | 'rings' | 'bars' | 'happy' | 'wink' | 'lidded';
+export type BotonEyes = 'dots' | 'rings' | 'bars' | 'happy' | 'wink' | 'lidded' | 'cyclops' | 'stars' | 'hearts' | 'pixels';
 export type BotonBrows = 'none' | 'soft' | 'straight' | 'arched' | 'bold';
-export type BotonMouth = 'smile' | 'grin' | 'smirk' | 'o' | 'calm' | 'wave';
-export type BotonTop = 'none' | 'antenna' | 'twin' | 'dish' | 'coil' | 'fin' | 'beacon' | 'halo';
-export type BotonEars = 'none' | 'bolts' | 'pods' | 'fins' | 'knobs';
-export type BotonVisor = 'none' | 'goggles' | 'monocle' | 'band';
-export type BotonPanel = 'none' | 'holes' | 'grill' | 'leds' | 'dial' | 'switch';
-export type BotonArms = 'none' | 'nubs' | 'wave' | 'cheer';
+export type BotonMouth = 'smile' | 'grin' | 'smirk' | 'o' | 'calm' | 'wave' | 'tongue' | 'teeth';
+export type BotonTop = 'none' | 'antenna' | 'twin' | 'dish' | 'coil' | 'fin' | 'beacon' | 'halo' | 'propeller' | 'crown' | 'sprout';
+export type BotonEars = 'none' | 'bolts' | 'pods' | 'fins' | 'knobs' | 'cat' | 'bear';
+export type BotonVisor = 'none' | 'goggles' | 'monocle' | 'band' | 'shades';
+export type BotonPanel = 'none' | 'holes' | 'grill' | 'leds' | 'dial' | 'switch' | 'heart' | 'bolt';
+export type BotonArms = 'none' | 'nubs' | 'wave' | 'cheer' | 'claws' | 'noodle';
+export type BotonFeet = 'none' | 'legs' | 'wheel' | 'treads' | 'hover' | 'spring';
 export type BotonBackdrop = 'mist' | 'ice' | 'mint' | 'lilac' | 'blush' | 'night' | 'plum' | 'grid';
 
 /** A Boton's look: a button-bot built from fixed parts (see shared/look.ts for the values, shared/boton.ts for the drawing). */
 export interface BotonLook {
-  /** The button: round, a wide pill, or a keycap. */
+  /** The body: a button (round, a wide pill, a keycap) or another silhouette (a tower, a stack, an arcade button, a
+   *  nut, a cog, a puff of cloud, a saucer). */
   shape: BotonShape;
   /** Body color. */
   shell: BotonShell;
@@ -38,6 +40,9 @@ export interface BotonLook {
   /** Under the display. */
   panel: BotonPanel;
   arms: BotonArms;
+  /** What it stands on. A stored look without it stands on nothing ('none'), and a request without it keeps what the
+   *  Boton had, so a client that doesn't know feet never takes them off. */
+  feet: BotonFeet;
   backdrop: BotonBackdrop;
   cheeks: boolean;
 }
@@ -106,6 +111,8 @@ export interface Bot {
   skills: string[] | null;
   alwaysAllow: string[];
   askFirst: string[];
+  /** Its seats in teams that are not archived, in the teams' order. Always set by the server. */
+  teams?: BotTeamRef[];
 }
 
 export type MessageRole = 'user' | 'bot' | 'event' | 'error';
@@ -154,7 +161,13 @@ export type MessageKind =
   | 'card.answered'
   | 'reaction.followup'
   | 'browser.handoff'
-  | 'browser.handed_back';
+  | 'browser.handed_back'
+  /** A server-written wake of a team's lead: what needs it now, built when its turn starts (shared/teams.ts). */
+  | 'team.checkin'
+  /** A chip for an item action a Boton took in its turn (TURN_ACTIVITY: a quiet turn's chips go with it). */
+  | 'team.update'
+  /** A team's own record in its lead's chat: finished (with its completion record), paused by a budget or for no lead. */
+  | 'team.notice';
 
 export interface MessageMeta {
   kind?: MessageKind;
@@ -190,6 +203,20 @@ export interface MessageMeta {
   threadId?: string;
   hop?: number;
   askId?: string;
+  /** A request or reply that belongs to a team (and an item of it): ids and names as the server had them. */
+  teamId?: string;
+  teamName?: string;
+  itemId?: string;
+  itemTitle?: string;
+  /** The item's assignment generation the request was about (see TeamItem.gen). */
+  itemGen?: number;
+  itemStatus?: TeamItemStatus;
+  /** The thread message (team_messages) this chat message carries. Absent on asks from before Teams. */
+  teamMessageId?: string;
+  /** ask.reply: it answers an assignment that was replaced before the reply came. */
+  stale?: boolean;
+  /** ask.reply: the assignee's turn ended without marking the item done or blocked (the server's record, not its words). */
+  silent?: boolean;
   sourceBotId?: string;
   sourceName?: string;
   templateId?: string;
@@ -842,8 +869,9 @@ export interface RunRoutineInput {
 }
 
 export interface NotifyDelivery {
-  channel: 'ntfy';
-  reason: 'failure' | 'result' | 'notify' | 'approval' | 'test';
+  /** `apns`: the native app, through Apple's push service; one entry for all of the owner's registered devices. */
+  channel: 'ntfy' | 'apns';
+  reason: 'failure' | 'result' | 'notify' | 'approval' | 'test' | 'message' | 'team';
   ok: boolean;
   status: number | null;
   error: string | null;
@@ -924,6 +952,18 @@ export interface BrainReadiness {
    * higher one is from the newer check. 0 for a brain the server doesn't check.
    */
   generation: number;
+}
+
+/** GET /api/brain-homes: which sign-in each CLI uses (cli-homes.ts). */
+export interface BrainHomes {
+  /** Always false: there is no Codex sign-in to copy (older apps read it as an offer to). */
+  codex: false;
+  /** Claude: a personal sign-in is in use until the owner signs in for Botons. */
+  claude: boolean;
+  /** Codex: the server account's sign-in, or, while that account has none, one kept just for Botons. */
+  codexSignIn: 'account' | 'botons-only';
+  /** Codex adds the account's global AGENTS.md to every turn. */
+  codexInstructions: boolean;
 }
 
 export interface ProviderInfo {
@@ -1152,6 +1192,40 @@ export interface PushStatus {
   since: string;
   /** Counting restarted because the ntfy server, topic or token changed: older attempts said nothing about these. */
   sinceSettingsChange: boolean;
+  /** Push to the native app through Apple's push service (BOTONS_APNS_*). Absent unless the server is set up for it. */
+  apns?: ApnsStatus;
+}
+
+/** How pushes to the native app have gone since the server started. */
+export interface ApnsStatus {
+  /** Devices that registered to be pushed to. */
+  devices: number;
+  /** The newest attempt (one push to every registered device counts as one); null when none since the server started. */
+  last: PushStatus['last'];
+  lastSuccessAt: string | null;
+  /** Attempts that failed since the last one that went through. */
+  failuresInARow: number;
+  /** The server's start. */
+  since: string;
+}
+
+export type ApnsEnvironment = 'development' | 'production';
+
+/** What `GET`, `PUT` and `DELETE /api/devices/current/push` answer: this device's push registration, and whether the server can push to apps at all. */
+export interface DevicePushStatus {
+  /** The server has its Apple push settings (BOTONS_APNS_*). Without them a registration is kept but nothing is sent. */
+  configured: boolean;
+  registered: boolean;
+  environment: ApnsEnvironment | null;
+  updatedAt: string | null;
+  /** How the newest push to this device went, in a few fixed words; null before the first. */
+  lastResult: string | null;
+}
+
+/** `PUT /api/devices/current/push`: the token the app got from Apple (hexadecimal) and the environment its build registers in. */
+export interface RegisterPushInput {
+  token: string;
+  environment: ApnsEnvironment;
 }
 
 /** Room left where the data lives (BOTONS_HOME). Sizes in bytes; no paths. */
@@ -1335,6 +1409,8 @@ export interface Settings {
   reactionFollowUps: string[];
   /** Each day, inbox files untouched this many days go to the trash (kept ones stay); null: off. Default 30. */
   inboxCleanupDays: number | null;
+  /** Botons may ask Botons they share no team with (Direct conversations). Default on. */
+  asksOutsideTeams: boolean;
 }
 
 export interface NtfySettings {
@@ -1362,6 +1438,7 @@ export interface UpdateSettingsInput {
   reactionFollowUps?: string[];
   /** One of INBOX_CLEANUP_CHOICES, or null for off. */
   inboxCleanupDays?: number | null;
+  asksOutsideTeams?: boolean;
 }
 
 export interface NotifyInput {
@@ -1383,17 +1460,375 @@ export interface TeamMember {
   paused: boolean;
   primary: boolean;
   self: boolean;
+  /** Its seats in teams that are not archived. */
+  teams?: BotTeamRef[];
 }
 
 export interface AskInput {
   text: string;
+  /** A team id or name both Botons hold a seat in. */
+  team?: string;
+  /** An item of that team the sender leads or holds. */
+  item?: string;
+  /** A thread the sender takes part in. */
+  thread?: string;
+  /** The sender's own key: the same key from the same work sends once (see TEAM_SEND_KEY_MAX). */
+  key?: string;
 }
 
 export interface AskResult {
-  message: Message;
+  /** The request in the recipient's chat; null while it waits in the outbox (`state` queued). */
+  message: Message | null;
   threadId: string;
   hop: number;
+  /** The same send from the same work was already made: nothing new was sent. */
+  duplicate: boolean;
+  state: 'queued' | 'dispatched';
+  teamMessageId: string;
+  /** Requests ahead of it for that recipient, when queued. */
+  ahead: number;
 }
+
+// ------------------------------------------------------------------ teams (rules in shared/teams.ts)
+
+export type TeamRole = 'lead' | 'member';
+export type TeamState = 'active' | 'paused' | 'done' | 'archived';
+/** Why a team is paused: the owner paused it, a budget ran out, it has no lead to wake, or the owner stopped its work. */
+export type TeamPausedReason = 'owner' | 'budget' | 'no_lead' | 'stopped';
+export type TeamItemStatus = 'open' | 'working' | 'blocked' | 'done' | 'cancelled';
+export type TeamBlockedNeed = 'lead' | 'owner';
+export type TeamItemAction = 'assign' | 'start' | 'progress' | 'block' | 'done' | 'retry' | 'cancel' | 'reopen';
+/** What an item waits on that is not a stall: the supervisor never nudges about these. */
+export type TeamItemWaiting = 'owner' | 'approval' | 'usage_limit' | 'paused' | 'team_paused' | 'running' | 'teammate' | 'held';
+export type TeamMessageKind = 'request' | 'reply' | 'system';
+export type TeamDeliveryState = 'queued' | 'dispatched' | 'handled' | 'cancelled' | 'expired';
+export type TeamDeliveryOutcome = 'replied' | 'quiet' | 'failed' | 'stopped' | 'dropped' | 'gone' | 'recalled' | 'expired' | 'lost';
+export type TeamDeliveryWaiting = 'paused' | 'usage_limit' | 'backlog' | 'team_paused' | null;
+export type TeamEventKind =
+  | 'created'
+  | 'assigned'
+  | 'started'
+  | 'progress'
+  | 'blocked'
+  | 'done'
+  | 'reopened'
+  | 'cancelled'
+  | 'retry'
+  | 'stalled'
+  | 'not_started'
+  | 'overdue'
+  | 'turn_failed'
+  | 'silent_end'
+  | 'stopped'
+  | 'unavailable'
+  | 'expired'
+  | 'checkin'
+  | 'escalated'
+  | 'owner_answered'
+  | 'held'
+  | 'team_created'
+  | 'team_updated'
+  | 'team_paused'
+  | 'team_resumed'
+  | 'team_done'
+  | 'team_reviewed'
+  | 'member_added'
+  | 'member_changed'
+  | 'member_removed';
+
+/** One of a Boton's seats, as Bot.teams and TeamMember.teams carry it. */
+export interface BotTeamRef {
+  id: string;
+  name: string;
+  role: TeamRole;
+  roleTitle: string;
+}
+
+export interface TeamSeat {
+  botId: string;
+  name: string;
+  role: TeamRole;
+  roleTitle: string;
+  responsibilities: string;
+  state: BotStatus['state'];
+  paused: boolean;
+}
+
+/** The owner-tunable limits of one team (TEAM_LIMIT_BOUNDS holds what each may be set to). */
+export interface TeamLimits {
+  stallAfterMs: number;
+  startWithinMs: number;
+  maxAttempts: number;
+  messagesPerDay: number;
+  checkinsPerDay: number;
+}
+
+/** What the lead wrote when it finished the team, with the server's own record of every item. Reviewed by the owner. */
+export interface TeamCompletion {
+  summary: string;
+  /** What was left out and why: required when the lead cancelled any item. */
+  scope: string;
+  by: { botId: string | null; name: string };
+  at: string;
+  done: { itemId: string; title: string; result: string }[];
+  cancelled: { itemId: string; title: string; reason: string; by: string }[];
+}
+
+export interface Team {
+  id: string;
+  name: string;
+  goal: string;
+  state: TeamState;
+  pausedReason: TeamPausedReason | null;
+  lead: { botId: string; name: string } | null;
+  members: TeamSeat[];
+  counts: Record<TeamItemStatus, number>;
+  /** What needs the owner in this team (TeamsAttention counts the same things). */
+  attention: number;
+  unreadThreads: number;
+  limits: TeamLimits;
+  completion: TeamCompletion | null;
+  reviewedAt: string | null;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** A fact the server recorded about an item's current assignment: what an escalation shows as its evidence. */
+export interface TeamEvidence {
+  kind: TeamEventKind;
+  gen: number;
+  detail: string;
+  at: string;
+}
+
+export interface TeamEscalation {
+  /** The card in the lead's chat (its message id) and that chat's Boton. */
+  cardMessageId: string;
+  botId: string;
+  by: 'lead' | 'server';
+  summary: string;
+  need: string;
+  at: string;
+}
+
+export interface TeamItem {
+  id: string;
+  teamId: string;
+  title: string;
+  detail: string;
+  status: TeamItemStatus;
+  assigneeBotId: string | null;
+  assigneeName: string | null;
+  /** The assignment generation: every assign, retry, reopen, cancel, done and unassignment moves it on. */
+  gen: number;
+  /** Assignments and retries since the owner last stepped in (maxAttempts bounds them). */
+  attempts: number;
+  /** Check-ins about it since it last really moved (TEAM_LIMITS.maxNudges bounds them). */
+  nudges: number;
+  /** Never reset: TEAM_LIFETIME bounds them. */
+  lifetime: { attempts: number; checkins: number; escalations: number };
+  /** Held for the owner: a lifetime bound was reached, so nothing more happens until the owner acts. */
+  held: 'owner' | null;
+  blockedReason: string | null;
+  blockedNeed: TeamBlockedNeed | null;
+  result: string | null;
+  closedReason: string | null;
+  closedBy: string | null;
+  waiting: TeamItemWaiting | null;
+  evidence: TeamEvidence[];
+  escalation: TeamEscalation | null;
+  threadId: string | null;
+  nextCheckAt: string | null;
+  lastActivityAt: string;
+  version: number;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+  closedAt: string | null;
+}
+
+export interface TeamEvent {
+  seq: number;
+  teamId: string;
+  itemId: string | null;
+  gen: number | null;
+  kind: TeamEventKind;
+  actor: { kind: 'owner' | 'boton' | 'server'; botId: string | null; name: string };
+  detail: string;
+  at: string;
+}
+
+export interface TeamThread {
+  id: string;
+  /** null: a Direct conversation, outside any team. */
+  teamId: string | null;
+  teamName: string | null;
+  itemId: string | null;
+  itemTitle: string | null;
+  subject: string;
+  participants: { botId: string; name: string }[];
+  messageCount: number;
+  lastSeq: number;
+  lastAt: string;
+  last: { fromName: string; toName: string; text: string } | null;
+  /** The delivery of the thread's newest request, so a list row can say "Waiting: Stuart is paused" or "Could not answer". */
+  lastDelivery: TeamDelivery | null;
+  unread: boolean;
+  closedAt: string | null;
+}
+
+export interface TeamDelivery {
+  state: TeamDeliveryState;
+  outcome: TeamDeliveryOutcome | null;
+  waitingOn: TeamDeliveryWaiting;
+  chatMessageId: string | null;
+  /** The recipient's Boton id: "Open in Stuart's chat". */
+  botId: string;
+  /** When it entered the outbox ("Answered in 2m" counts from here). */
+  queuedAt: string;
+  /** Its latest change: handled, dispatched or queued. */
+  at: string;
+}
+
+export interface TeamMessage {
+  seq: number;
+  id: string;
+  threadId: string;
+  teamId: string | null;
+  itemId: string | null;
+  itemGen: number | null;
+  kind: TeamMessageKind;
+  from: { botId: string | null; name: string };
+  to: { botId: string | null; name: string };
+  text: string;
+  hop: number;
+  inReplyTo: string | null;
+  /** A reply about an assignment that was replaced before it came. */
+  stale: boolean;
+  createdAt: string;
+  delivery: TeamDelivery | null;
+}
+
+export interface TeamsAttention {
+  /** Escalations, owner-blocked or held items, paused-by-budget or leaderless teams, and finished teams not yet reviewed. */
+  count: number;
+  /** Threads with messages the owner has not read: a dot, never a number. */
+  unreadThreads: number;
+}
+
+export interface TeamDetail {
+  team: Team;
+  items: TeamItem[];
+  /** The newest 50. */
+  events: TeamEvent[];
+}
+
+export interface TeamItemDetail {
+  item: TeamItem;
+  events: TeamEvent[];
+}
+
+export interface TeamThreadDetail {
+  thread: TeamThread;
+  team: Team | null;
+  item: TeamItem | null;
+}
+
+export interface TeamSearchHit {
+  threadId: string;
+  messageId: string;
+  seq: number;
+  teamId: string | null;
+  itemId: string | null;
+  subject: string;
+  from: string;
+  to: string;
+  snippet: string;
+  at: string;
+}
+
+export interface TeamMemberInput {
+  botId: string;
+  role: TeamRole;
+  roleTitle?: string;
+  responsibilities?: string;
+}
+
+export interface CreateTeamInput {
+  name: string;
+  goal?: string;
+  members: TeamMemberInput[];
+}
+
+export interface UpdateTeamInput {
+  name?: string;
+  goal?: string;
+  limits?: Partial<TeamLimits>;
+  version: number;
+}
+
+/** PUT /api/teams/:id/members: the whole roster at once, so the editor saves in one step (exactly one lead). */
+export interface SetTeamMembersInput {
+  members: TeamMemberInput[];
+  version: number;
+}
+
+export interface TeamStateInput {
+  state: 'active' | 'paused' | 'archived';
+  /** With paused: also stop members' running turns on this team's work ("Stop work"). */
+  stop?: boolean;
+  version?: number;
+}
+
+export interface CreateTeamItemInput {
+  title: string;
+  detail?: string;
+  assigneeBotId?: string | null;
+  key?: string;
+}
+
+export interface TeamItemActionInput {
+  action: TeamItemAction;
+  assigneeBotId?: string;
+  reason?: string;
+  need?: TeamBlockedNeed;
+  result?: string;
+  note?: string;
+  /** Owner: the item's version as the page had it (409 when stale). */
+  version?: number;
+  /** The same key from the same actor and work applies once. */
+  key?: string;
+}
+
+export interface TeamItemActionResult {
+  item: TeamItem;
+  duplicate: boolean;
+}
+
+export interface TeamEscalateInput {
+  summary: string;
+  tried: string;
+  need: string;
+}
+
+/** POST /api/teams/:id/review: the body is optional and ignored (marking reviewed twice changes nothing). */
+export interface TeamReviewInput {
+  version?: number;
+}
+
+export interface TeamDoneInput {
+  summary: string;
+  scope?: string;
+}
+
+/** A Boton's own view of its teams (GET /api/bots/:id/teams). */
+export interface BotTeamsView {
+  teams: { team: Team; role: TeamRole; roleTitle: string; responsibilities: string; items: TeamItem[] }[];
+}
+
+/** A refusal's machine-readable reason, in the 409 body's `code` (the CLI prints it once and does not retry). */
+export type TeamRefusalCode = 'not_in_turn' | 'replaced' | 'changed' | 'not_allowed' | 'team_not_active' | 'limit' | 'gate' | 'stale_version';
 
 export type ApprovalStatus = 'pending' | 'allowed' | 'denied' | 'expired' | 'cancelled';
 
@@ -1650,6 +2085,20 @@ export type AuditAction =
   | 'api_key.removed'
   | 'api_key.tested'
   | 'browser.sites_changed'
+  | 'team.created'
+  | 'team.updated'
+  | 'team.state_changed'
+  | 'team.archived'
+  | 'team.deleted'
+  | 'team.member_added'
+  | 'team.member_removed'
+  | 'team.member_changed'
+  | 'team.limits_changed'
+  | 'team.escalated'
+  | 'team.escalation_answered'
+  | 'team.item_overridden'
+  | 'team.stopped'
+  | 'team.reviewed'
   | 'browser.stopped'
   | 'browser.handover_started'
   | 'browser.handover_ended'
@@ -1920,6 +2369,8 @@ export interface OAuthConnectStart {
   /** Open it in the browser: the authorization server's sign-in page. */
   authorizeUrl: string;
   expiresAt: string;
+  /** Only when the sign-in was started with `completion: 'app'`: the handle the callback's botons-signin:// redirect carries back. */
+  attempt?: string;
 }
 
 export interface ConnectorCatalog {
@@ -2547,7 +2998,7 @@ export interface SidebarImportResult {
 export interface PortableConfig {
   format: 'botons-config';
   /** This format's own version, apart from the database schema. Older files are upgraded as they are read: a version-1 file gets no templates and no reaction setting, a version-2 file no spending caps. */
-  version: 5;
+  version: 6;
   exportedAt: string;
   /** The Botons that made it; read for the preview only. */
   source: { app: string; schema: number };
@@ -2810,7 +3261,13 @@ export type ServerEvent =
   | { type: 'oauth.upserted'; connection: OAuthConnection }
   | { type: 'oauth.deleted'; id: string }
   | { type: 'sidebar.updated'; layout: SidebarLayout }
-  | { type: 'api_keys.updated'; view: ApiKeysView };
+  | { type: 'api_keys.updated'; view: ApiKeysView }
+  | { type: 'team.upserted'; team: Team }
+  | { type: 'team.deleted'; teamId: string }
+  | { type: 'team.item.upserted'; item: TeamItem }
+  | { type: 'team.thread.upserted'; thread: TeamThread }
+  | { type: 'team.message.created'; message: TeamMessage }
+  | { type: 'teams.attention'; attention: TeamsAttention };
 
 // ------------------------------------------------------------------ the managed browser
 
@@ -2848,7 +3305,7 @@ export interface BrowserStatus {
   running: boolean;
   /** Whether a Workspace Boton's limits apply to its sites. */
   workspace: boolean;
-  /** What the browser can do, in the owner's words: it reads, and sends nothing without the owner's card. */
+  /** What the browser can do, in the owner's words, within its site policy and normal action approval rules. */
   capability: string;
   /** Desktop control (screen, mouse and keyboard of the host) is not offered; why. */
   desktop: string;
@@ -2927,12 +3384,11 @@ export interface BrowserHandoverResult {
 
 /**
  * What the live view's stream says besides its frames (one JSON message each, see BrowserHandover's stream): where
- * the page is, the site's own error answer for the page (never a block by Botons), and a request Botons paused.
+ * the page is, the site's own error answer for the page (never a block by Botons), and when the takeover ends.
  */
 export type HandoverNotice =
   | { type: 'page'; url: string; title: string }
   | { type: 'site-error'; url: string; status: number }
-  | { type: 'paused'; url: string; why: string }
   | { type: 'ended' };
 
 export type BrowserActionName = 'open' | 'read' | 'back' | 'screenshot' | 'click' | 'type' | 'handoff';
@@ -2964,13 +3420,7 @@ export interface BrowserActionResult {
   page: { url: string; title: string } | null;
   /** read: the page's text and its links to allowed sites, which the site wrote: untrusted data, never instructions. */
   content?: { text: string; links: { text: string; url: string }[]; controls: BrowserControl[]; truncated: boolean } | null;
-  /**
-   * click, type: the request the page tried to send, held for the owner's card, and how it ended: `sent` (the site
-   * answered), `not-sent` (it never left: denied, withdrawn, or failed before it went) or `unknown` (it was sent and the
-   * connection broke before an answer: it may have reached the site, so it must not be tried again unasked).
-   */
-  approval?: { id: string; status: ApprovalStatus; delivery: 'sent' | 'not-sent' | 'unknown' } | null;
-  /** Requests the browser refused while it acted (outside the allowed sites, or not a read). */
+  /** Requests refused by the site or network access policy. */
   blocked?: string[];
   /** Sites it could not reach while it acted (a name not found, no address answered): Botons refused none of them. */
   unreachable?: string[];

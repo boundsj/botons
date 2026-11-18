@@ -4,7 +4,30 @@ import { VERSION } from '../../../shared/app-version.mjs';
 import '../env-init.ts';
 import { resolve } from 'node:path';
 import { parseArgs } from 'node:util';
-import type { Approval, ApprovalRequestResult, AskResult, ConnectorRequestResult, Memory, Message, BotonConnector, NotifyResult, Routine, RoutineRun, ShareResult, Skill, TeamMember, WebhookFilter } from '../../../shared/types.ts';
+import type {
+  Approval,
+  ApprovalRequestResult,
+  AskResult,
+  BotTeamsView,
+  ConnectorRequestResult,
+  Memory,
+  Message,
+  BotonConnector,
+  NotifyResult,
+  Routine,
+  RoutineRun,
+  ShareResult,
+  Skill,
+  Team,
+  TeamDetail,
+  TeamItem,
+  TeamItemActionResult,
+  TeamItemDetail,
+  TeamMember,
+  TeamMessage,
+  TeamThreadDetail,
+  WebhookFilter,
+} from '../../../shared/types.ts';
 import { durationText, isPastOneOff } from '../../../shared/util.ts';
 import { fmtTime } from '../util.ts';
 import { serveApprovals } from './approve-mcp.ts';
@@ -52,7 +75,22 @@ const HELP = `botons — manage your routines and memory, use skills, notify you
   botons card post (--card <json> | --file <card.json>) [--expires <duration>]
   botons card show <id>
   botons team
-  botons ask <name or id> <text>
+  botons team show [<team>]
+  botons team board [<team>]
+  botons team item add <team> --title <text> [--detail <text>] [--assign <name>]
+  botons team item assign <item> <name> [--note <text>]
+  botons team item retry <item> [--note <text>]
+  botons team item start <item>
+  botons team item update <item> --note <text>
+  botons team item block <item> --reason <text> --need lead|owner
+  botons team item done <item> --result <text>
+  botons team item cancel <item> --reason <text>
+  botons team item reopen <item>
+  botons team item show <item>
+  botons team escalate <item> --summary <text> --tried <text> --need <text>
+  botons team done <team> --summary <text> [--scope <text>]
+  botons team thread <id>
+  botons ask <name or id> <text> [--team <team>] [--item <item>] [--thread <id>] [--key <key>]
 
 Schedules: cron ("0 8 * * 1-5"), "every 30m", "every 2h", "daily at 8:00", "weekdays at 7:30am",
 "in 20m", or "at 2026-11-05 09:00".
@@ -85,7 +123,15 @@ the ids of the messages your turn answers); \`unreact\` takes yours off. One rea
 never on your own messages, and never in place of an answer a question or request needs. A reaction pushes
 nothing and is never an approval.
 \`botons ask\` posts your message in another Boton's chat, signed as you, and returns at once;
-its reply comes back to you later as a new message.
+its reply comes back to you later as a new message. --team sends it in a team you both hold a seat
+in, --item about an item you lead or hold; --key names the send, so the same key from the same work
+sends once. \`botons team\` lists your teams, your role and what each teammate owns, then every Boton.
+In a team, the one who holds an item starts it, notes progress, and ends it with \`done\` or \`block\`
+(never by just stopping); the lead adds, assigns, retries, cancels and reopens items, escalates one
+to your owner only with what is on record, and finishes the team with \`team done\` (--scope: what was
+left out and why, when it cancelled any). <team> is a name or an id, and may be left out when you
+hold one seat. A refusal with a code (not_in_turn, replaced, changed) is final for this turn: don't
+retry it. Never put a password, key, token or code in a message or an item.
 Skills are procedures in the library your owner shares with every Boton. Save one when you have
 worked out how to do something that will come up again: a name like weekly-report (lowercase words
 and hyphens), a description that says what it does and when to use it, and the steps as Markdown.
@@ -113,7 +159,10 @@ its answer goes into the chat. Don't wait for the answer: end your turn. You get
 (a connector card: with the connector, if your owner gives it). --expires: default 24h, at most 7d.
 Add --json to any command for JSON output.`;
 
-class CliError extends Error {}
+class CliError extends Error {
+  /** The server's HTTP status, when it refused. */
+  status?: number;
+}
 
 async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
   let res: Response;
@@ -134,7 +183,12 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
   if (res.status === 401) {
     throw new CliError('The Botons server did not accept this turn\'s token. It only works during the turn it was issued for; run `botons` from within a turn.');
   }
-  if (!res.ok) throw new CliError(data?.error ?? `HTTP ${res.status}`);
+  if (!res.ok) {
+    // A team refusal's code is said once: the server's answer is final for this turn, so it is not tried again.
+    const err = new CliError(typeof data?.code === 'string' ? `${data.error ?? `HTTP ${res.status}`}\n(code: ${data.code}; don't retry it in this turn)` : (data?.error ?? `HTTP ${res.status}`));
+    err.status = res.status;
+    throw err;
+  }
   return data as T;
 }
 
@@ -221,12 +275,26 @@ async function main(argv: string[]): Promise<string | object> {
       action: { type: 'string' },
       expires: { type: 'string' },
       card: { type: 'string' },
+      team: { type: 'string' },
+      item: { type: 'string' },
+      thread: { type: 'string' },
+      key: { type: 'string' },
+      note: { type: 'string' },
+      reason: { type: 'string' },
+      need: { type: 'string' },
+      result: { type: 'string' },
+      assign: { type: 'string' },
+      detail: { type: 'string' },
+      summary: { type: 'string' },
+      tried: { type: 'string' },
+      scope: { type: 'string' },
       pending: { type: 'boolean' },
       json: { type: 'boolean' },
       help: { type: 'boolean', short: 'h' },
     },
   });
   const [area, action, ...rest] = pos;
+  const flags = o as Opts;
   if (o.help || !area || area === 'help') return HELP;
   if (!BOT || !TOKEN) throw new CliError('BOTON_BOT_ID or BOTON_TOKEN is not set; this tool is meant to be run by a Boton, during a turn.');
   const instruction = o.instruction ?? o.prompt;
@@ -549,22 +617,171 @@ async function main(argv: string[]): Promise<string | object> {
         throw new CliError(`Unknown connector command "${action}". See \`botons help\`.`);
     }
   }
-  if (area === 'team') {
-    const team = await call<TeamMember[]>('GET', `/api/bots/${BOT}/team`);
-    if (o.json) return team;
-    return team.map(teamLine).join('\n');
-  }
+  if (area === 'team' || area === 'teams') return team(action, rest, flags);
   if (area === 'ask') {
     const who = need(action, 'who to ask (a name from `botons team`)');
     const text = need(rest.join(' ').trim() || undefined, 'what to ask');
     const target = pick(await call<TeamMember[]>('GET', `/api/bots/${BOT}/team`), who);
     if (target.self) throw new CliError("You can't ask yourself. Do the work in this turn instead.");
-    const out = await call<AskResult>('POST', `/api/bots/${encodeURIComponent(target.id)}/asks`, { text });
+    const body = { text, ...(o.team ? { team: o.team } : {}), ...(o.item ? { item: o.item } : {}), ...(o.thread ? { thread: o.thread } : {}), ...(o.key ? { key: o.key } : {}) };
+    const out = await call<AskResult>('POST', `/api/bots/${encodeURIComponent(target.id)}/asks`, body);
     if (o.json) return out;
+    if (out.duplicate) return `Already asked ${target.name} that from this work (${out.teamMessageId}): nothing new was sent. Don't wait for the reply: finish your turn.`;
     const later = target.paused ? `${target.name} is paused, so it answers once it is resumed` : `${target.name} answers when it gets to it`;
-    return `Asked ${target.name}. ${later}; the reply comes back to you as a new message. Don't wait for it: finish your turn.`;
+    const queued = out.state === 'queued' ? ` It is queued behind ${out.ahead} other message${out.ahead === 1 ? '' : 's'} for ${target.name}.` : '';
+    return `Asked ${target.name}.${queued} ${later}; the reply comes back to you as a new message. Don't wait for it: finish your turn.`;
   }
   throw new CliError(`Unknown command "${area}". See \`botons help\`.`);
+}
+
+type Opts = Record<string, string | boolean | undefined>;
+
+/** `botons team ...`: the Boton's teams, their boards and items, and the lead's and assignee's actions. */
+async function team(action: string | undefined, rest: string[], o: Opts): Promise<string | object> {
+  const view = () => call<BotTeamsView>('GET', `/api/bots/${BOT}/teams`);
+  /** A team by name or id; left out, the one the Boton holds a seat in. */
+  const teamOf = async (ref: string | undefined): Promise<Team> => {
+    const seats = (await view()).teams;
+    if (!ref) {
+      if (seats.length === 1) return seats[0].team;
+      throw new CliError(seats.length ? `You hold seats in ${seats.length} teams: name one (${seats.map((s) => s.team.name).join(', ')}).` : 'You hold no seat in a team.');
+    }
+    const found = seats.find((s) => s.team.id === ref || s.team.name.toLowerCase() === ref.trim().toLowerCase());
+    if (!found) throw new CliError(`You hold no seat in a team called ${ref}. Your teams: ${seats.map((s) => s.team.name).join(', ') || 'none'}.`);
+    return found.team;
+  };
+  const act = async (item: string, body: Record<string, unknown>) => {
+    const out = await call<TeamItemActionResult>('POST', `/api/bots/${BOT}/team-items/${encodeURIComponent(item)}/actions`, { ...body, ...(o.key ? { key: o.key } : {}) });
+    if (o.json) return out;
+    return `${out.duplicate ? 'Already done: ' : ''}${itemLine(out.item)}`;
+  };
+  if (!action) {
+    // A webhook run reads no team (403): it still gets the roster.
+    const seats = view().catch((err): BotTeamsView => {
+      if (err instanceof CliError && err.status === 403) return { teams: [] };
+      throw err;
+    });
+    const [mine, all] = await Promise.all([seats, call<TeamMember[]>('GET', `/api/bots/${BOT}/team`)]);
+    // The roster as it always was; each entry lists its seats (`teams`). `botons team show` has a team's whole view.
+    if (o.json) return all;
+    const out: string[] = [];
+    for (const s of mine.teams) {
+      out.push(`${s.team.name} (${s.team.id}, ${s.team.state}): you are ${s.role === 'lead' ? 'the lead' : 'a member'}${s.roleTitle ? `, ${s.roleTitle}` : ''}${s.responsibilities ? ` — ${s.responsibilities}` : ''}`);
+      for (const m of s.team.members) if (m.botId !== BOT) out.push(`  ${m.botId}  ${m.name}${m.role === 'lead' ? ' (lead)' : ''}${m.roleTitle ? `, ${m.roleTitle}` : ''}${m.responsibilities ? ` — ${m.responsibilities}` : ''}`);
+    }
+    if (out.length) out.push('', 'Every Boton:');
+    return [...out, ...all.map(teamLine)].join('\n');
+  }
+  switch (action) {
+    case 'show': {
+      const t = await teamOf(rest[0]);
+      const d = await call<TeamDetail>('GET', `/api/bots/${BOT}/teams/${encodeURIComponent(t.id)}`);
+      if (o.json) return d;
+      const lines = [`${d.team.name} (${d.team.id}), ${d.team.state}${d.team.pausedReason ? ` (${d.team.pausedReason})` : ''}`, `Goal: ${d.team.goal || '(none)'}`, 'Members:'];
+      for (const m of d.team.members) lines.push(`  ${m.botId}  ${m.name}${m.role === 'lead' ? ' (lead)' : ''}${m.roleTitle ? `, ${m.roleTitle}` : ''}${m.responsibilities ? ` — ${m.responsibilities}` : ''} [${m.state}${m.paused ? ', paused' : ''}]`);
+      lines.push(`Board: ${boardLine(d.team)}`);
+      return lines.join('\n');
+    }
+    case 'board': {
+      const t = await teamOf(rest[0]);
+      const d = await call<TeamDetail>('GET', `/api/bots/${BOT}/teams/${encodeURIComponent(t.id)}`);
+      if (o.json) return d.items;
+      return d.items.length ? d.items.map(itemLine).join('\n') : `${d.team.name} has no items yet.`;
+    }
+    case 'item': {
+      const [verb, ref, ...more] = rest;
+      switch (verb) {
+        case 'add': {
+          const t = await teamOf(ref);
+          let assigneeBotId: string | undefined;
+          if (typeof o.assign === 'string') assigneeBotId = member(t, o.assign).botId;
+          const out = await call<TeamItemActionResult>('POST', `/api/bots/${BOT}/teams/${encodeURIComponent(t.id)}/items`, {
+            title: need(o.title as string | undefined, '--title'),
+            ...(o.detail ? { detail: o.detail } : {}),
+            ...(assigneeBotId ? { assigneeBotId } : {}),
+            ...(o.key ? { key: o.key } : {}),
+          });
+          if (o.json) return out;
+          return `${out.duplicate ? 'Already added: ' : 'Added '}${itemLine(out.item)}`;
+        }
+        case 'assign': {
+          const item = need(ref, 'the item');
+          const who = need(more.join(' ').trim() || undefined, 'who to assign it to');
+          const d = await call<TeamItemDetail>('GET', `/api/bots/${BOT}/team-items/${encodeURIComponent(item)}`);
+          const t = (await view()).teams.find((s) => s.team.id === d.item.teamId)!.team;
+          return act(item, { action: 'assign', assigneeBotId: member(t, who).botId, ...(o.note ? { note: o.note } : {}) });
+        }
+        case 'retry':
+          return act(need(ref, 'the item'), { action: 'retry', ...(o.note ? { note: o.note } : {}) });
+        case 'start':
+        case 'reopen':
+          return act(need(ref, 'the item'), { action: verb });
+        case 'update':
+        case 'progress':
+          return act(need(ref, 'the item'), { action: 'progress', note: need(o.note as string | undefined, '--note') });
+        case 'block':
+          return act(need(ref, 'the item'), { action: 'block', reason: need(o.reason as string | undefined, '--reason'), need: need(o.need as string | undefined, '--need lead or --need owner') });
+        case 'done':
+          return act(need(ref, 'the item'), { action: 'done', result: need(o.result as string | undefined, '--result') });
+        case 'cancel':
+          return act(need(ref, 'the item'), { action: 'cancel', reason: need(o.reason as string | undefined, '--reason') });
+        case 'show': {
+          const d = await call<TeamItemDetail>('GET', `/api/bots/${BOT}/team-items/${encodeURIComponent(need(ref, 'the item'))}`);
+          if (o.json) return d;
+          const i = d.item;
+          const lines = [itemLine(i)];
+          if (i.detail) lines.push(`Detail: ${i.detail}`);
+          if (i.result) lines.push(`Result: ${i.result}`);
+          if (i.blockedReason) lines.push(`Blocked: ${i.blockedReason} (needs ${i.blockedNeed === 'owner' ? 'your owner' : 'the lead'})`);
+          if (i.closedReason) lines.push(`Cancelled: ${i.closedReason}`);
+          lines.push(`Attempts ${i.attempts}, check-ins ${i.nudges}${i.threadId ? `, thread ${i.threadId}` : ''}`, 'History (newest first):');
+          for (const e of d.events.slice(0, 20)) lines.push(`  ${e.at}  ${e.kind}${e.gen !== null ? ` (assignment ${e.gen})` : ''}  ${e.actor.name}${e.detail ? `: ${e.detail}` : ''}`);
+          return lines.join('\n');
+        }
+        default:
+          throw new CliError(`Unknown item command "${verb ?? ''}". See \`botons help\`.`);
+      }
+    }
+    case 'escalate': {
+      const item = need(rest[0], 'the item');
+      const out = await call<TeamItemActionResult>('POST', `/api/bots/${BOT}/team-items/${encodeURIComponent(item)}/escalations`, { summary: o.summary, tried: o.tried, need: o.need });
+      if (o.json) return out;
+      return `${out.duplicate ? 'Already escalated' : 'Escalated'} ${item} to your owner: they get one card and one push. Don't wait for the answer: end your turn. You get a new turn with it.`;
+    }
+    case 'done': {
+      const t = await teamOf(rest[0]);
+      const out = await call<Team>('POST', `/api/bots/${BOT}/teams/${encodeURIComponent(t.id)}/done`, { summary: o.summary, ...(o.scope ? { scope: o.scope } : {}) });
+      if (o.json) return out;
+      return `${out.name} is finished, for your owner to review. Your reply to this turn is your report to them.`;
+    }
+    case 'thread': {
+      const id = need(rest[0], 'the thread id');
+      const d = await call<TeamThreadDetail & { messages: TeamMessage[] }>('GET', `/api/bots/${BOT}/team-threads/${encodeURIComponent(id)}`);
+      if (o.json) return d;
+      return [`${d.thread.subject} (${d.thread.id})`, ...d.messages.map((m) => `[${m.createdAt}] ${m.from.name}${m.to.name ? ` → ${m.to.name}` : ''} (${m.kind}): ${m.text}`)].join('\n\n');
+    }
+    default:
+      throw new CliError(`Unknown team command "${action}". See \`botons help\`.`);
+  }
+}
+
+function member(t: Team, who: string): Team['members'][number] {
+  const m = t.members.find((x) => x.botId === who) ?? t.members.find((x) => x.name.toLowerCase() === who.trim().toLowerCase());
+  if (!m) throw new CliError(`No one called ${who} holds a seat in ${t.name}: ${t.members.map((x) => x.name).join(', ')}.`);
+  return m;
+}
+
+function boardLine(t: Team): string {
+  const parts = (['working', 'blocked', 'open', 'done', 'cancelled'] as const).flatMap((s) => (t.counts[s] ? [`${t.counts[s]} ${s}`] : []));
+  return parts.length ? parts.join(', ') : 'no items yet';
+}
+
+function itemLine(i: TeamItem): string {
+  const bits: string[] = [i.status, i.assigneeName ? `held by ${i.assigneeName}` : 'not assigned', `assignment ${i.gen}`];
+  if (i.status === 'blocked') bits.push(`needs ${i.blockedNeed === 'owner' ? 'your owner' : 'the lead'}`);
+  if (i.waiting) bits.push(`waiting: ${i.waiting}`);
+  if (i.escalation) bits.push('escalated');
+  return `${i.id}  ${i.title}  (${bits.join(', ')})`;
 }
 
 function approvalLine(a: Approval): string {

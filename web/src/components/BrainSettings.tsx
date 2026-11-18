@@ -1,12 +1,12 @@
 import { useEffect, useId, useRef, useState } from 'react';
-import type { ApiKeyState, Bot, ProviderInfo, SpendingView } from '../../../shared/types.ts';
+import type { ApiKeyState, Bot, BrainHomes, ProviderInfo, SpendingView } from '../../../shared/types.ts';
 import { api } from '../api.ts';
 import { BRAIN_ROWS, brainSetUp, brainUsers, brainView, loginCommand, signInFinished, usd, usedByText } from '../brains.ts';
 import { actions, useStore } from '../state.ts';
 import { cx, relative } from '../util.ts';
 import { OUTCOME, sourceText } from './ApiKeys.tsx';
 import { BrainCliActions } from './BrainCliActions.tsx';
-import { Copy } from './Brains.tsx';
+import { CODEX_SHARED, Copy } from './Brains.tsx';
 import { CheckAgain, withCode } from './BrainWarning.tsx';
 import { ChevronIcon } from './Icons.tsx';
 import { useActiveRef } from './PageActive.ts';
@@ -14,7 +14,6 @@ import { useActiveRef } from './PageActive.ts';
 /** A row's own message: what the owner just did to that brain, and only there. */
 type Note = { text: string; ok: boolean } | null;
 type SetNote = (note: Note) => void;
-type Homes = { codex: boolean; claude: boolean };
 
 interface Brain {
   id: string;
@@ -43,7 +42,7 @@ export function BrainSettings({ onOpenBot, onPage }: { onOpenBot?: (id: string) 
   const container = useStore((s) => s.setup?.exposure.container ?? false);
   const [open, setOpen] = useState<string[]>([]);
   const [notes, setNotes] = useState<Record<string, Note>>({});
-  const [homes, setHomes] = useState<Homes>({ codex: false, claude: false });
+  const [homes, setHomes] = useState<BrainHomes>({ codex: false, claude: false, codexSignIn: 'account', codexInstructions: false });
   const [spend, setSpend] = useState<Record<string, SpendingView>>({});
   const active = useActiveRef();
   const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
@@ -63,12 +62,6 @@ export function BrainSettings({ onOpenBot, onPage }: { onOpenBot?: (id: string) 
       note(id, null);
     } else setOpen([...open, id]);
   };
-  const refreshHomes = () =>
-    api
-      .brainHomes()
-      .then(setHomes)
-      .catch(() => {});
-
   useEffect(() => {
     let live = true;
     const refresh = () => {
@@ -166,7 +159,6 @@ export function BrainSettings({ onOpenBot, onPage }: { onOpenBot?: (id: string) 
       note={notes[b.id] ?? null}
       setNote={(n) => note(b.id, n)}
       homes={homes}
-      refreshHomes={refreshHomes}
       container={container}
       spend={spend}
       onOpenBot={onOpenBot}
@@ -195,15 +187,14 @@ interface RowProps {
   onToggle: () => void;
   note: Note;
   setNote: SetNote;
-  homes: Homes;
-  refreshHomes: () => Promise<void>;
+  homes: BrainHomes;
   container: boolean;
   spend: Record<string, SpendingView>;
   onOpenBot?: (id: string) => void;
   onPage?: (page: 'api-keys') => void;
 }
 
-function BrainRow({ b, adding, open, onToggle, note, setNote, homes, refreshHomes, container, spend, onOpenBot, onPage }: RowProps) {
+function BrainRow({ b, adding, open, onToggle, note, setNote, homes, container, spend, onOpenBot, onPage }: RowProps) {
   const body = useId();
   const view = b.p ? brainView(b.p, { container }) : null;
   // A Boton on an API brain with no key can't think, whatever the last check said.
@@ -266,8 +257,7 @@ function BrainRow({ b, adding, open, onToggle, note, setNote, homes, refreshHome
             <CliBody
               p={b.p}
               setUp={b.setUp}
-              pending={b.p.id === 'codex-cli' ? homes.codex : homes.claude}
-              refreshHomes={refreshHomes}
+              homes={homes}
               setNote={setNote}
               container={container}
             />
@@ -314,49 +304,40 @@ function Why({ view, skipFix }: { view: ReturnType<typeof brainView>; skipFix?: 
 function CliBody({
   p,
   setUp,
-  pending,
-  refreshHomes,
+  homes,
   setNote,
   container,
 }: {
   p: ProviderInfo;
   setUp: boolean;
-  pending: boolean;
-  refreshHomes: () => Promise<void>;
+  homes: BrainHomes;
   setNote: SetNote;
   container: boolean;
 }) {
   const codex = p.id === 'codex-cli';
   const [signing, setSigning] = useState(false);
-  const [busy, setBusy] = useState(false);
   const view = brainView(p, { container });
   const ready = p.readiness.state === 'ready';
   const failed = p.lastError && (!p.lastSuccessAt || p.lastError.at > p.lastSuccessAt) ? p.lastError : null;
   const command = loginCommand(p.id, container) ?? '';
+  // Claude only: a personal sign-in in use until the owner signs in for Botons.
+  const pending = !codex && homes.claude;
+  // Codex only: the server account isn't signed in, so a sign-in kept just for Botons is in use.
+  const keptOnly = codex && homes.codexSignIn === 'botons-only';
   const signIn = signing || (!setUp && !pending);
-  const copyExisting = async () => {
-    setBusy(true);
-    setNote(null);
-    try {
-      await api.importCodexSignIn();
-      await refreshHomes();
-      await actions.loadProviders(true);
-      setNote({ ok: true, text: '✓ Botons now has its own Codex sign-in.' });
-    } catch {
-      setNote({
-        ok: false,
-        text: 'Could not copy the sign-in. Try signing in just for Botons.',
-      });
-    } finally {
-      setBusy(false);
-    }
-  };
   return (
     <>
       {!ready && <Why view={view} skipFix={p.readiness.state === 'signed-out'} />}
       {failed && <p className="hint warn">Last turn failed: {failed.message}</p>}
       <BrainCliActions provider={p.id as 'codex-cli' | 'claude-cli'} />
-      {signIn ? (
+      {keptOnly && (
+        <p className="hint warn">
+          Codex is using a sign-in kept just for Botons, because this server account isn't signed in to Codex. Sign in once for the account and Botons
+          switches to it by itself.
+        </p>
+      )}
+      {codex && homes.codexInstructions && <p className="hint">Codex also gives Codex Botons this account's global AGENTS.md.</p>}
+      {signIn || keptOnly ? (
         codex ? (
           <CodexSignIn command={command} setNote={setNote} onDone={() => setSigning(false)} />
         ) : (
@@ -368,29 +349,19 @@ function CliBody({
             <p className="hint">Leave this page open; it checks by itself.</p>
           </div>
         )
-      ) : pending && codex ? (
-        <div className="brain-signin">
-          <p className="hint">It uses your existing Codex sign-in. Give Botons its own copy, or sign in just for Botons.</p>
-          <div className="form-actions">
-            <button type="button" className="btn small" disabled={busy} onClick={() => void copyExisting()}>
-              Use existing sign-in
-            </button>
-            <button type="button" className="btn small" disabled={busy} onClick={() => setSigning(true)}>
-              Sign in just for Botons
-            </button>
-          </div>
-          <p className="hint">Copies only the Codex sign-in file, never your instructions, skills or settings.</p>
-        </div>
       ) : pending ? (
         <p className="hint">
           It uses your existing Claude sign-in. To sign in just for Botons, run <code>{command}</code> <Copy text={command} /> on the server.
         </p>
       ) : (
-        <div className="form-actions">
-          <button type="button" className="btn small ghost" onClick={() => setSigning(true)}>
-            Change sign-in
-          </button>
-        </div>
+        <>
+          {codex && <p className="hint">Uses this server account's Codex sign-in.</p>}
+          <div className="form-actions">
+            <button type="button" className="btn small ghost" onClick={() => setSigning(true)}>
+              {codex ? 'Sign in again' : 'Change sign-in'}
+            </button>
+          </div>
+        </>
       )}
       {!ready && view.fix && <CheckAgain />}
     </>
@@ -466,6 +437,7 @@ function CodexSignIn({ command, setNote, onDone }: { command: string; setNote: S
       {login && ['fallback', 'timed-out'].includes(login.state) && (
         <p className="hint warn">Browser sign-in could not finish. Try again, or use the terminal.</p>
       )}
+      <p className="hint">{CODEX_SHARED}</p>
       <p className="hint">
         Or on the server: <code>{command}</code> <Copy text={command} />
       </p>

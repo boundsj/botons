@@ -1,0 +1,9 @@
+{
+  "message": null,
+  "threadId": "thr_schema",
+  "hop": 1,
+  "duplicate": false,
+  "state": "queued",
+  "teamMessageId": "tmsg_queued",
+  "ahead": 3
+}

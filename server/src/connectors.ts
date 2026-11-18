@@ -399,7 +399,7 @@ export class Connectors {
         source: 'library',
         providers: providers.filter(drivesBrowser).map((p) => p.id),
         transport: 'stdio',
-        target: "Built into Botons: the Boton's own managed browser, which only reads the sites you list in its settings",
+        target: "Built into Botons: the Boton's own managed browser, limited to the sites you list in its settings",
         status: 'ok',
         note: why,
         onRequest: false,

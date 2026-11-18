@@ -1,0 +1,134 @@
+{
+  "thread": {
+    "id": "thr_schema",
+    "teamId": "team_atlas",
+    "teamName": "Atlas",
+    "itemId": "item_schema",
+    "itemTitle": "Map the export to the new schema",
+    "subject": "Map the export to the new schema",
+    "participants": [
+      {
+        "botId": "bot_kevin",
+        "name": "Kevin"
+      },
+      {
+        "botId": "bot_stuart",
+        "name": "Stuart"
+      }
+    ],
+    "messageCount": 2,
+    "lastSeq": 31,
+    "lastAt": "2026-11-16T10:20:00.000Z",
+    "last": {
+      "fromName": "Stuart",
+      "toName": "Kevin",
+      "text": "Mapped 14 of 20 tables; the rest need the key."
+    },
+    "lastDelivery": {
+      "state": "handled",
+      "outcome": "replied",
+      "waitingOn": null,
+      "chatMessageId": "msg_req",
+      "botId": "bot_stuart",
+      "queuedAt": "2026-11-16T09:30:00.000Z",
+      "at": "2026-11-16T10:20:00.000Z"
+    },
+    "unread": true,
+    "closedAt": null
+  },
+  "team": {
+    "id": "team_atlas",
+    "name": "Atlas",
+    "goal": "Ship the importer: read the export, map it to the new schema, and write the user guide.",
+    "state": "active",
+    "pausedReason": null,
+    "lead": {
+      "botId": "bot_kevin",
+      "name": "Kevin"
+    },
+    "members": [
+      {
+        "botId": "bot_kevin",
+        "name": "Kevin",
+        "role": "lead",
+        "roleTitle": "Lead",
+        "responsibilities": "Plans the work and reviews results.",
+        "state": "idle",
+        "paused": false
+      },
+      {
+        "botId": "bot_stuart",
+        "name": "Stuart",
+        "role": "member",
+        "roleTitle": "Backend",
+        "responsibilities": "The importer and the schema.",
+        "state": "working",
+        "paused": false
+      },
+      {
+        "botId": "bot_bob",
+        "name": "Bob",
+        "role": "member",
+        "roleTitle": "Docs",
+        "responsibilities": "The user guide.",
+        "state": "idle",
+        "paused": true
+      }
+    ],
+    "counts": {
+      "open": 1,
+      "working": 1,
+      "blocked": 1,
+      "done": 1,
+      "cancelled": 0
+    },
+    "attention": 1,
+    "unreadThreads": 2,
+    "limits": {
+      "stallAfterMs": 1800000,
+      "startWithinMs": 900000,
+      "maxAttempts": 3,
+      "messagesPerDay": 300,
+      "checkinsPerDay": 40
+    },
+    "completion": null,
+    "reviewedAt": null,
+    "version": 4,
+    "createdAt": "2026-11-16T09:00:00.000Z",
+    "updatedAt": "2026-11-16T10:30:00.000Z"
+  },
+  "item": {
+    "teamId": "team_atlas",
+    "detail": "",
+    "attempts": 1,
+    "nudges": 0,
+    "lifetime": {
+      "attempts": 1,
+      "checkins": 0,
+      "escalations": 0
+    },
+    "held": null,
+    "blockedReason": null,
+    "blockedNeed": null,
+    "result": null,
+    "closedReason": null,
+    "closedBy": null,
+    "waiting": "running",
+    "evidence": [],
+    "escalation": null,
+    "version": 3,
+    "createdBy": "bot_kevin",
+    "createdAt": "2026-11-16T09:05:00.000Z",
+    "closedAt": null,
+    "id": "item_schema",
+    "title": "Map the export to the new schema",
+    "status": "working",
+    "assigneeBotId": "bot_stuart",
+    "assigneeName": "Stuart",
+    "gen": 1,
+    "threadId": "thr_schema",
+    "nextCheckAt": "2026-11-16T11:00:00.000Z",
+    "lastActivityAt": "2026-11-16T10:20:00.000Z",
+    "updatedAt": "2026-11-16T10:20:00.000Z"
+  }
+}

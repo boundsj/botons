@@ -3084,10 +3084,11 @@ button.template-chip,
   .app.has-panel {
     grid-template-columns: 1fr;
   }
-  .app.has-bot .sidebar {
+  /* A chat or a Teams screen takes the whole width, with a back button; else the list does. */
+  .app.has-main .sidebar {
     display: none;
   }
-  .app:not(.has-bot) .empty-main {
+  .app:not(.has-main) .empty-main {
     display: none;
   }
   .mobile-only {
@@ -4888,19 +4889,37 @@ button.template-chip,
   padding: 9px 18px;
   font-size: 15px;
 }
+.takeover-paste {
+  white-space: nowrap;
+}
+.takeover-paste-box {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-2);
+}
+.takeover-paste-box label {
+  font-weight: 600;
+}
+.takeover-paste-box p {
+  margin: 4px 0 8px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.takeover-paste-entry {
+  display: flex;
+  gap: 8px;
+}
+.takeover-paste-entry input {
+  flex: 1;
+  min-width: 0;
+  font-size: 16px;
+}
 .takeover-line,
-.takeover-details,
-.takeover-site,
-.takeover-paused {
+.takeover-site {
   margin: 0;
   padding: 5px 14px;
   font-size: 13px;
   color: var(--muted);
-}
-.takeover-details {
-  color: var(--text);
-  line-height: 1.5;
-  border-bottom: 1px solid var(--border);
 }
 /* The site's own error, said as the site's: never styled as a block by Botons. */
 .takeover-site {
@@ -4908,9 +4927,6 @@ button.template-chip,
   background: var(--surface-2);
   border-top: 1px solid var(--border);
   border-bottom: 1px solid var(--border);
-}
-.takeover-paused {
-  color: var(--warn);
 }
 .takeover-view {
   position: relative;
@@ -5278,6 +5294,40 @@ button.template-chip,
   --paint-ffffff1a: #ffffff1a;
 }
 
+/* Ultra black: the dark theme on true black, for OLED screens. index.html sets data-dark-style only while the theme is
+   dark (Dark, or System at night), so light never sees it. The page and the sidebar are black; the surfaces are
+   neutral near-blacks lifted just enough to separate, and the sidebar's hairline a little more; text, accents,
+   states and the user's bubble keep their dark values. */
+:root[data-dark-style="black"] {
+  --grid-line: #3ee6ff10;
+  --paint-0e0e0e: #000000;
+  --paint-111: #050506;
+  --paint-151515: #070708;
+  --paint-161616: #000000;
+  --paint-161616e6: #000000e6;
+  --paint-181818: #0b0b0d;
+  --paint-191919: #0c0c0e;
+  --paint-1a1a1a: #0d0d10;
+  --paint-1b1b1b: #0e0e11;
+  --paint-1c1c1c: #17181c;
+  /* The chat's glow from the top: none, the chat is black too. */
+  --paint-1d1d1d: #000000;
+  --paint-1e1e1e: #111215;
+  --paint-1f1f1f: #121316;
+  --paint-1f1f1fe6: #121316e6;
+  --paint-222: #141518;
+  --paint-232323: #121317;
+  --paint-242424: #16171b;
+  --paint-262626: #18191d;
+  --paint-2a2a2a: #1b1c21;
+  --paint-2c2c2c: #1c1d22;
+  --paint-2f2f2f: #1e1f25;
+  --paint-333: #212228;
+  --paint-353535: #2a2c33;
+  --paint-383838: #24252c;
+  --paint-3a3a3a: #26272e;
+}
+
 /* Settings, as grouped rows: a Boton's (the panel's Settings tab) and the server's. */
 .boton-settings {
   gap: 20px;
@@ -5524,6 +5574,1048 @@ button.template-chip,
   }
 }
 
+/* ------------------------------------------------------------ Teams */
+
+/* The sidebar's way in: always at the top of the list. The number is warn-tinted; a plain dot is only unread talk. */
+.teams-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 8px;
+  margin-bottom: 6px;
+  border-radius: 14px;
+  color: var(--text);
+  text-decoration: none;
+}
+.teams-row:hover {
+  background: var(--paint-191919);
+}
+.teams-row.selected {
+  background: var(--paint-242424);
+  box-shadow: inset 3px 0 0 var(--accent-edge);
+}
+.teams-row.selected:focus-visible {
+  box-shadow: inset 3px 0 0 var(--accent-edge), var(--focus);
+}
+.teams-row-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 42px;
+  height: 34px;
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--muted);
+  flex: none;
+}
+.teams-row.selected .teams-row-icon {
+  color: var(--accent-text);
+}
+.teams-row-name {
+  font-weight: 560;
+  font-size: 15px;
+}
+.teams-count {
+  flex: none;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  display: inline-grid;
+  place-items: center;
+  background: var(--paint-3b2f10);
+  color: var(--paint-ffe08a);
+  border: 1px solid var(--paint-5a4716);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+}
+.teams-dot {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  background: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent-edge);
+}
+.teams-row .teams-count,
+.teams-row .teams-dot {
+  margin-left: auto;
+}
+@media (forced-colors: active) {
+  .teams-row.selected {
+    outline: 2px solid Highlight;
+    outline-offset: -2px;
+  }
+  .teams-dot {
+    background: CanvasText;
+  }
+}
+
+/* Its screens take the main column, where a chat goes. */
+.teams-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--bg);
+}
+.teams-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--surface-2);
+  min-width: 0;
+}
+.teams-heading {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+.teams-title {
+  font-size: 18px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.teams-title:focus {
+  outline: none;
+  box-shadow: none;
+}
+.teams-sub {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  font-size: 13px;
+  color: var(--muted);
+  min-width: 0;
+}
+.teams-actions {
+  display: flex;
+  gap: 8px;
+  flex: none;
+}
+.teams-tabs-row {
+  width: 100%;
+  max-width: calc(860px + 32px);
+  margin: 0 auto;
+  padding: 10px 16px 0;
+  display: flex;
+}
+.teams-tabs {
+  max-width: 100%;
+}
+.tab-count {
+  display: inline-grid;
+  margin-left: 6px;
+  min-width: 18px;
+  height: 18px;
+  font-size: 11px;
+  vertical-align: middle;
+}
+.tab-mark {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-left: 6px;
+  vertical-align: middle;
+  border-radius: 999px;
+  background: var(--accent);
+}
+.teams-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px 16px 32px;
+  overscroll-behavior: contain;
+}
+.teams-page {
+  max-width: 860px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 18px;
+}
+.teams-loading {
+  margin: 8px 0;
+}
+.teams-section {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+.teams-section > h2,
+.teams-section-head h2,
+.board-title {
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: 0 4px;
+}
+.teams-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.needs-list,
+.team-cards,
+.thread-list,
+.item-list,
+.event-list,
+.evidence-list,
+.completion-list,
+.thread-messages,
+.team-botons ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+.state-chip {
+  display: inline-flex;
+  align-items: center;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  color: var(--paint-cfcfcf);
+  white-space: nowrap;
+}
+.state-chip.is-ok {
+  background: var(--paint-1f4733);
+  color: var(--ok);
+}
+.state-chip.is-warn {
+  background: var(--paint-3b2f10);
+  color: var(--paint-ffe08a);
+}
+
+/* What needs the owner: the only tinted rows, and each says why in words. */
+.needs-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--paint-3b2f10);
+  border: 1px solid var(--paint-5a4716);
+  color: var(--text);
+  text-decoration: none;
+}
+.needs-row:hover {
+  filter: brightness(1.08);
+}
+.needs-icon {
+  flex: none;
+  color: var(--warn);
+}
+.needs-text {
+  display: grid;
+  min-width: 0;
+}
+.needs-title {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.needs-why {
+  font-size: 13px;
+  color: var(--paint-ffe3a3);
+}
+
+.team-card {
+  display: grid;
+  gap: 6px;
+  padding: 14px;
+  border-radius: 14px;
+  background: var(--surface);
+  border: 1px solid var(--surface-2);
+  color: var(--text);
+  text-decoration: none;
+  min-width: 0;
+}
+.team-card:hover {
+  background: var(--surface-2);
+}
+.team-card.needs {
+  border-color: var(--paint-5a4716);
+}
+.team-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.team-card-name {
+  font-weight: 650;
+  font-size: 16px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.team-card-head .teams-count,
+.team-card-head .teams-dot {
+  margin-left: auto;
+}
+.team-card-goal {
+  color: var(--muted);
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+.team-card-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.team-card-counts {
+  margin-left: auto;
+}
+.avatar-stack {
+  display: inline-flex;
+  align-items: center;
+}
+.avatar-stack .avatar + .avatar {
+  margin-left: -6px;
+}
+.archived-teams > summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 13.5px;
+  padding: 6px 4px;
+}
+.archived-teams .team-cards {
+  margin-top: 6px;
+}
+.teams-empty {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+}
+.teams-empty p {
+  margin: 0;
+}
+.teams-empty.intro {
+  justify-items: center;
+  text-align: center;
+  max-width: 520px;
+  margin: 24px auto;
+  gap: 10px;
+  color: var(--text);
+}
+.teams-empty.intro > svg {
+  color: var(--accent-text);
+}
+.teams-empty.intro p {
+  color: var(--muted);
+}
+
+/* A team's state, when it isn't plainly working, with what puts it right. */
+.team-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: var(--surface);
+  border: 1px solid var(--surface-2);
+  font-size: 14px;
+}
+.team-banner > span {
+  flex: 1 1 260px;
+}
+.team-banner.warn {
+  background: var(--paint-3b2f10);
+  border-color: var(--paint-5a4716);
+}
+
+/* Work */
+.work-head {
+  display: flex;
+  justify-content: flex-end;
+}
+.board-group {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+.board-group.needs .board-title {
+  color: var(--warn);
+}
+details.board-group > summary {
+  cursor: pointer;
+  padding: 2px 4px;
+}
+.group-count {
+  font-weight: 500;
+  color: var(--faint);
+  letter-spacing: 0;
+}
+.item-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--text);
+  text-decoration: none;
+  min-width: 0;
+}
+.item-row:hover {
+  background: var(--surface-2);
+}
+.item-row.needs {
+  box-shadow: inset 3px 0 0 var(--warn);
+}
+.item-row-text {
+  display: grid;
+  min-width: 0;
+  gap: 1px;
+}
+.item-row-title {
+  font-weight: 560;
+  overflow-wrap: anywhere;
+}
+.item-row-status {
+  font-size: 13px;
+  color: var(--muted);
+}
+.item-row.needs .item-row-status {
+  color: var(--warn);
+}
+.avatar-gap {
+  display: inline-block;
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  border: 1.5px dashed var(--border);
+  flex: none;
+}
+
+/* An item */
+.item-status.warn {
+  color: var(--warn);
+}
+.escalation {
+  display: grid;
+  gap: 8px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: var(--paint-3b2f10);
+  border: 1px solid var(--paint-5a4716);
+}
+.escalation h2 {
+  font-size: 16px;
+}
+.escalation p {
+  margin: 0;
+}
+.escalation .muted {
+  color: var(--paint-ffe3a3);
+  font-size: 13px;
+}
+.escalation .btn {
+  justify-self: start;
+}
+.item-facts dl {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 8px 18px;
+  margin: 0;
+  padding: 14px;
+  border-radius: 14px;
+  border: 1px solid var(--surface-2);
+}
+.item-facts dt {
+  color: var(--muted);
+  font-size: 13px;
+  padding-top: 1px;
+}
+.item-facts dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.item-facts dd .md > :first-child,
+.item-detail > :first-child {
+  margin-top: 0;
+}
+.item-detail {
+  padding: 10px 0;
+}
+.item-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px 0;
+}
+.item-thread {
+  justify-self: start;
+}
+.evidence-list li,
+.event-list li {
+  font-size: 14px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--surface-2);
+  overflow-wrap: anywhere;
+}
+.evidence-list li:last-child,
+.event-list li:last-child {
+  border-bottom: 0;
+}
+.evidence-list {
+  padding: 4px 0;
+}
+.event-detail {
+  color: var(--muted);
+}
+.item-history {
+  display: grid;
+  gap: 4px;
+}
+
+/* The owner's voice to a team is the lead's chat. */
+.steer-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px dashed var(--border);
+}
+.steer-line p {
+  margin: 0;
+  flex: 1 1 240px;
+  color: var(--muted);
+  font-size: 14px;
+}
+.steer-line .btn {
+  text-decoration: none;
+  color: var(--text);
+}
+
+/* Conversations */
+.conversations {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+.teams-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--surface);
+  border-radius: 999px;
+  padding: 0 14px;
+  color: var(--muted);
+}
+.teams-search input {
+  border: 0;
+  background: transparent;
+  padding: 9px 0;
+}
+.teams-search input:focus {
+  box-shadow: none;
+}
+.teams-search:focus-within {
+  box-shadow: var(--focus);
+}
+.teams-count-line {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+.load-more {
+  justify-self: start;
+}
+.thread-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  color: var(--text);
+  text-decoration: none;
+  min-width: 0;
+}
+.thread-row:hover {
+  background: var(--surface);
+}
+.thread-row.unread .thread-people {
+  font-weight: 750;
+}
+.thread-row .teams-dot {
+  align-self: center;
+}
+.thread-avatars {
+  position: relative;
+  flex: none;
+  width: 38px;
+  height: 36px;
+}
+.thread-avatars .avatar + .avatar {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+}
+.thread-row-text {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+  flex: 1;
+}
+.thread-row-top {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  min-width: 0;
+}
+.thread-people {
+  font-weight: 600;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.thread-time {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--muted);
+  flex: none;
+}
+.thread-subject {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  font-size: 14px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.item-chip {
+  font-size: 11.5px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--muted);
+  white-space: nowrap;
+}
+.thread-last {
+  font-size: 13.5px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.thread-row.hit .thread-last {
+  white-space: normal;
+}
+.thread-row mark {
+  background: var(--accent);
+  color: var(--accent-ink);
+  border-radius: 3px;
+  padding: 0 1px;
+}
+.thread-note {
+  font-size: 12.5px;
+  color: var(--warn);
+}
+
+/* The thread reader */
+.thread-context {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+}
+.thread-context .chip-link {
+  color: var(--accent-text);
+}
+.participant {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  vertical-align: middle;
+}
+.thread-page .day-sep {
+  margin: 8px 0 0;
+}
+.thread-messages {
+  gap: 12px;
+}
+.thread-msg {
+  display: grid;
+  gap: 4px;
+  max-width: 720px;
+  border-radius: 14px;
+  padding: 2px;
+}
+.thread-msg:focus {
+  outline: none;
+}
+.thread-msg.focused {
+  box-shadow: 0 0 0 2px var(--accent-edge);
+}
+.thread-msg-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  font-size: 13px;
+  padding: 0 4px;
+}
+.thread-msg-head time {
+  color: var(--muted);
+  font-size: 12px;
+}
+.thread-kind {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--muted);
+}
+.thread-msg.request .bubble {
+  background: var(--surface);
+}
+.thread-msg.reply .bubble {
+  background: transparent;
+  border: 1px solid var(--surface-3);
+}
+.thread-msg.stale .bubble {
+  border-style: dashed;
+}
+.thread-msg.system {
+  max-width: none;
+  text-align: center;
+  font-size: 13px;
+  color: var(--muted);
+}
+.thread-msg.system p {
+  margin: 0;
+}
+.stale-note {
+  margin: 0;
+  padding: 0 4px;
+  font-size: 12.5px;
+  color: var(--warn);
+}
+.delivery-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin: 0;
+  padding: 0 4px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.delivery-line .chip-link {
+  color: var(--accent-text);
+}
+.thread-end {
+  height: 1px;
+}
+
+/* Links that look like buttons. */
+.teams-main a.btn,
+.team-notice a.btn {
+  text-decoration: none;
+}
+.teams-main a.btn:not(.primary) {
+  color: var(--text);
+}
+
+/* Team */
+.team-tab {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 20px;
+}
+.team-goal {
+  padding: 12px 0;
+}
+.team-goal p {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.seat-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0;
+  min-width: 0;
+}
+.seat-text {
+  display: grid;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+.seat-name {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  font-weight: 600;
+}
+.seat-name .muted {
+  font-weight: 500;
+  font-size: 13.5px;
+}
+.seat-resp {
+  font-size: 13.5px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.seat-state {
+  font-size: 12.5px;
+  color: var(--muted);
+  flex: none;
+}
+.seat-state.active {
+  color: var(--accent-text);
+}
+.lead-badge {
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 700;
+}
+.completion {
+  display: grid;
+  gap: 8px;
+  padding: 16px;
+  border-radius: 14px;
+  background: var(--surface);
+  border: 1px solid var(--surface-2);
+}
+.completion.to-review {
+  border-color: var(--paint-5a4716);
+}
+.completion h2 {
+  font-size: 17px;
+}
+.completion h3 {
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-top: 6px;
+}
+.completion p {
+  margin: 0;
+}
+.completion-list li {
+  overflow-wrap: anywhere;
+}
+.completion-list .chip-link {
+  color: var(--accent-text);
+  font-weight: 600;
+}
+.completion-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 6px;
+}
+.limits-form {
+  display: grid;
+  gap: 14px;
+  padding: 8px 0;
+}
+.limit-field {
+  display: grid;
+  gap: 4px;
+}
+.limit-input {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.limit-input input {
+  width: 110px;
+}
+
+/* The editors */
+.team-form {
+  display: grid;
+  gap: 14px;
+}
+.team-form fieldset {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+.team-form legend {
+  padding: 0;
+  margin-bottom: 6px;
+}
+.team-botons ul {
+  gap: 2px;
+  max-height: 260px;
+  overflow-y: auto;
+}
+label.check.team-check {
+  padding: 6px 6px;
+  border-radius: 10px;
+}
+label.check.team-check:hover {
+  background: var(--surface);
+}
+.team-check-name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.team-role {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid var(--surface-2);
+}
+.team-role-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+/* Teams in a chat: a thread or item one link away, a team's own notices, the opened message lit for a moment. */
+.msg-thread-link,
+.card-team-link {
+  font-size: 12.5px;
+  color: var(--accent-text);
+  padding: 0 8px;
+}
+.msg-thread-link:hover,
+.card-team-link:hover {
+  text-decoration: underline;
+}
+.card-team-link {
+  display: flex;
+  justify-content: center;
+  margin-top: 4px;
+}
+.msg-from .msg-item {
+  font-weight: 500;
+}
+.team-notice {
+  align-self: center;
+  display: grid;
+  gap: 6px;
+  width: min(640px, 100%);
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: var(--surface);
+  border: 1px solid var(--surface-3);
+  margin: 6px auto;
+}
+.team-notice-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.team-notice .link-btn {
+  justify-self: start;
+}
+@keyframes opened-message {
+  from {
+    box-shadow: 0 0 0 2px var(--accent-edge);
+  }
+  to {
+    box-shadow: 0 0 0 2px transparent;
+  }
+}
+.focus-mark + * {
+  border-radius: 14px;
+  animation: opened-message 3.5s ease-in 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .focus-mark + * {
+    animation: none;
+    box-shadow: 0 0 0 2px var(--accent-edge);
+  }
+}
+
+@media (pointer: coarse) {
+  .teams-row,
+  .needs-row,
+  .item-row,
+  .thread-row {
+    min-height: 52px;
+  }
+  .teams-tabs .tab {
+    min-height: 40px;
+    padding: 8px 12px;
+  }
+  label.check.team-check {
+    min-height: 44px;
+  }
+  .teams-main .btn.small,
+  .team-notice .link-btn {
+    min-height: 40px;
+  }
+  .msg-thread-link,
+  .card-team-link,
+  .teams-main .chip-link {
+    min-height: 32px;
+    align-items: center;
+    display: inline-flex;
+  }
+  /* Taller by padding: it keeps its disclosure marker (a list item). */
+  details.board-group > summary {
+    padding-block: 10px;
+  }
+}
+@media (max-width: 800px) {
+  .teams-header {
+    padding: 10px;
+  }
+  .teams-tabs-row {
+    padding: 8px 10px 0;
+  }
+  .teams-scroll {
+    padding: 12px 10px 24px;
+    padding-bottom: max(24px, env(safe-area-inset-bottom));
+  }
+  .item-facts dl {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2px;
+  }
+  .item-facts dt {
+    margin-top: 8px;
+  }
+  .item-facts dt:first-child {
+    margin-top: 0;
+  }
+  .team-card-counts {
+    margin-left: 0;
+  }
+}
+
 :root[data-theme="light"] {
   color-scheme: light;
   --accent-text: #076f86;
@@ -5615,6 +6707,8 @@ button.template-chip,
 }
 
 .theme-quick { min-height: 44px; padding: 8px; color: var(--text); font-size: 13px; }
+.theme-setting { display: grid; gap: 10px; }
+.theme-setting label.check { min-height: 44px; }
 .avatar { filter: drop-shadow(0 1px 1px #0004); }
 
 /* Brains' commands must wrap inside a narrow Settings dialog. */

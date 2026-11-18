@@ -49,7 +49,7 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
     const out = await match.handler(makeCtx(req, res, url, match.params, principal, match.maxBody));
     if (!res.headersSent) sendJson(res, out === undefined ? 204 : 200, out ?? {});
   } catch (err) {
-    if (!res.headersSent) sendJson(res, err instanceof HttpError ? err.status : 500, { error: (err as Error).message });
+    if (!res.headersSent) sendJson(res, err instanceof HttpError ? err.status : 500, { error: (err as Error).message, ...(err instanceof HttpError && err.code ? { code: err.code } : {}) });
   }
 });
 await new Promise<void>((r) => server.listen(port, '127.0.0.1', r));
@@ -260,12 +260,13 @@ async function waitingForThree(name: string) {
   return { bob, dave, stuart, session, turns };
 }
 
-test("resumed turns: each one's whole input holds its own audience's messages only (asks first, two askers, the owner's)", async () => {
+test("resumed turns: each one's whole input holds its own audience's messages only (the owner's first, then two askers)", async () => {
   const { bob, dave, stuart, session, turns } = await waitingForThree('Bob');
   scripts.set(bob.id, (t) => `Seen ${turnsOf(bob.id).length - turns}`);
   await call('POST', `/api/bots/${bob.id}/resume`);
   await until(() => turnsOf(bob.id).length === turns + 3 && idle(bob.id) && idle(dave.id) && idle(stuart.id), 15_000);
-  const [a, b, own] = turnsOf(bob.id).slice(turns);
+  // The owner's message goes before the colleagues' asks that came earlier (none has waited ten minutes).
+  const [own, a, b] = turnsOf(bob.id).slice(turns);
   for (const t of [a, b, own]) assert.equal(t.sessionId, session, 'each resumes the chat session');
   assert.match(a.prompt, /ASK_A/);
   assert.doesNotMatch(a.prompt, /ASK_B|OWNER_PRIVATE_PENDING/);
@@ -278,16 +279,21 @@ test("resumed turns: each one's whole input holds its own audience's messages on
 
 test("a lost session's replay, for a colleague's ask: the chat answered so far, nothing waiting for another audience", async () => {
   const { bob, dave, stuart, session, turns } = await waitingForThree('Bobby');
-  mock.failNext(bob.id, new ProviderError('No conversation found with that session', true));
-  scripts.set(bob.id, () => 'Answered.');
+  // The owner's message runs first; the session is lost on the turn after it, the first colleague's ask.
+  let lose = true;
+  scripts.set(bob.id, (t) => {
+    if (lose && t.prompt.includes('OWNER_PRIVATE_PENDING')) mock.failNext(bob.id, new ProviderError('No conversation found with that session', true));
+    lose = false;
+    return 'Answered.';
+  });
   await call('POST', `/api/bots/${bob.id}/resume`);
   await until(() => turnsOf(bob.id).length === turns + 4 && idle(bob.id) && idle(dave.id) && idle(stuart.id), 15_000);
-  const [lost, retry] = turnsOf(bob.id).slice(turns);
+  const [, lost, retry] = turnsOf(bob.id).slice(turns);
   assert.equal(lost.sessionId, session);
   assert.equal(retry.sessionId, null, 'a new session, with the replay');
   assert.match(retry.prompt, /Earlier, answered/);
   assert.match(retry.prompt, /ASK_A/);
-  assert.doesNotMatch(retry.prompt, /ASK_B|OWNER_PRIVATE_PENDING/);
+  assert.doesNotMatch(retry.prompt, /ASK_B/);
 });
 
 test('webhookHistory: only the owner shares the chat with webhook runs, within bounds, on record; a run sees only that much', async () => {
@@ -352,4 +358,79 @@ test('the hook route checks a key or signature before it parses the body', async
   assert.equal(old.status, 401);
   assert.match(((await old.json()) as { error: string }).error, /Stale/);
   assert.equal((await hook(linear, { ...json, 'linear-signature': '00' }, '{not json')).status, 401, 'not parsed, so not a 400');
+});
+
+test("team routes: a sandboxed turn's token reaches none of them, another Boton's none of this one's, a Boton none of the owner's", async () => {
+  const kevin = await newBot('TeamKevin');
+  const stuart = await newBot('TeamStuart');
+  const made = await call('POST', '/api/teams', { name: 'Route Atlas', members: [{ botId: kevin.id, role: 'lead' }, { botId: stuart.id, role: 'member' }] });
+  assert.equal(made.status, 201, JSON.stringify(made.data));
+  const teamId = made.data.id as string;
+  const item = (await call('POST', `/api/teams/${teamId}/items`, { title: 'Guarded' })).data.item.id as string;
+  const sandboxed = app.auth.mintBotonToken(kevin.id, { sandboxed: true }).token;
+  const other = app.auth.mintBotonToken(stuart.id).token;
+  const own = app.auth.mintBotonToken(kevin.id).token;
+  const botonRoutes: [string, string, unknown?][] = [
+    ['GET', `/api/bots/${kevin.id}/teams`],
+    ['GET', `/api/bots/${kevin.id}/teams/${teamId}`],
+    ['POST', `/api/bots/${kevin.id}/teams/${teamId}/items`, { title: 'x' }],
+    ['GET', `/api/bots/${kevin.id}/team-items/${item}`],
+    ['POST', `/api/bots/${kevin.id}/team-items/${item}/actions`, { action: 'cancel', reason: 'x' }],
+    ['POST', `/api/bots/${kevin.id}/team-items/${item}/escalations`, { summary: 'x', tried: 'x', need: 'x' }],
+    ['POST', `/api/bots/${kevin.id}/teams/${teamId}/done`, { summary: 'x' }],
+    ['GET', `/api/bots/${kevin.id}/team-threads/thr_none`],
+  ];
+  for (const [method, path, body] of botonRoutes) {
+    const s = await call(method, path, body, sandboxed);
+    assert.equal(s.status, 403, `sandboxed ${method} ${path}`);
+    assert.match(s.data.error, /webhook/, path);
+    assert.equal((await call(method, path, body, other)).status, 403, `another Boton's ${method} ${path}`);
+  }
+  // A sandboxed turn sends nothing, in a team or not; it still reads the roster.
+  assert.equal((await call('POST', `/api/bots/${stuart.id}/asks`, { text: 'from a webhook', team: teamId }, sandboxed)).status, 403);
+  const roster = await call('GET', `/api/bots/${kevin.id}/team`, undefined, sandboxed);
+  assert.equal(roster.status, 200);
+  // The roster only: no one's teams reach a webhook run.
+  assert.ok(roster.data.every((m: Record<string, unknown>) => !('teams' in m)), JSON.stringify(roster.data));
+  assert.ok((await call('GET', `/api/bots/${kevin.id}/team`, undefined, own)).data.some((m: { teams?: unknown[] }) => m.teams?.length), 'its own turn sees them');
+  const ownerRoutes: [string, string, unknown?][] = [
+    ['GET', '/api/teams'],
+    ['POST', '/api/teams', { name: 'Mine', members: [{ botId: kevin.id, role: 'lead' }] }],
+    ['GET', '/api/teams/attention'],
+    ['GET', `/api/teams/${teamId}`],
+    ['PATCH', `/api/teams/${teamId}`, { goal: 'mine now' }],
+    ['PUT', `/api/teams/${teamId}/members`, { members: [{ botId: kevin.id, role: 'lead' }] }],
+    ['POST', `/api/teams/${teamId}/state`, { state: 'paused' }],
+    ['POST', `/api/teams/${teamId}/review`],
+    ['DELETE', `/api/teams/${teamId}`],
+    ['POST', `/api/teams/${teamId}/items`, { title: 'x' }],
+    ['GET', `/api/team-items/${item}`],
+    ['POST', `/api/team-items/${item}/actions`, { action: 'cancel', reason: 'x' }],
+    ['GET', '/api/team-threads'],
+    ['GET', '/api/team-threads/thr_none'],
+    ['GET', '/api/team-threads/thr_none/messages'],
+    ['POST', '/api/team-threads/thr_none/read', { upTo: 1 }],
+    ['GET', '/api/teams/search?q=x'],
+  ];
+  for (const [method, path, body] of ownerRoutes) assert.equal((await call(method, path, body, own)).status, 403, `a Boton's ${method} ${path}`);
+  // A Boton's own token outside a turn acts on nothing: an item action is taken during a turn.
+  const outside = await call('POST', `/api/bots/${kevin.id}/team-items/${item}/actions`, { action: 'cancel', reason: 'x' }, own);
+  assert.deepEqual([outside.status, outside.data.code], [409, 'not_in_turn']);
+  // A device uses the owner's routes, never a Boton's.
+  assert.equal((await call('POST', `/api/bots/${kevin.id}/team-items/${item}/actions`, { action: 'cancel', reason: 'x' })).status, 400);
+  assert.equal((await call('GET', `/api/teams/${teamId}`)).data.items[0].status, 'open');
+});
+
+test("the owner's messages go first, unless another audience's oldest has waited ten minutes", async () => {
+  const bot = await newBot('Queue');
+  const colleague = await newBot('Queue-Kevin');
+  assert.equal((await call('POST', `/api/bots/${bot.id}/pause`)).status, 200);
+  const asked = app.engine.ask(colleague.id, bot.id, 'an ask that came first');
+  await call('POST', `/api/bots/${bot.id}/messages`, { text: 'the owner, later' });
+  assert.equal(app.store.nextAudience(bot.id), 'owner');
+  app.store.db.prepare('update messages set created_at = ? where id = ?').run(new Date(Date.now() - 11 * 60_000).toISOString(), asked.message!.id);
+  assert.equal(app.store.nextAudience(bot.id), `ask:${colleague.id}`, 'starvation is bounded');
+  const { messages } = app.store.startChatTurn(bot.id);
+  assert.deepEqual(messages.map((m) => m.text), ['an ask that came first'], 'one audience per turn');
+  app.store.requeueChat(messages.map((m) => m.id));
 });

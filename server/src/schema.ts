@@ -5,7 +5,7 @@ import { taterLookFor } from '../../shared/look-tater.ts';
 import { newId } from './util.ts';
 import { RENAMED } from '../../shared/legacy-names.mjs';
 
-export const SCHEMA_VERSION = 35;
+export const SCHEMA_VERSION = 39;
 
 // Approvals is rebuilt by the upgrade from 20 (a check constraint can't be altered), so it is kept apart.
 const APPROVALS = `create table approvals (
@@ -327,6 +327,288 @@ const AUTH_TOKENS = `create table auth_tokens (
 create index auth_tokens_bot on auth_tokens(bot_id);
 `;
 
+// A paired device's registration for push to the native app. It goes with the device: revoking or signing out deletes the row.
+const PUSH_DEVICES = `create table push_devices (
+  device_id text primary key references auth_tokens(id) on delete cascade,
+  token text not null unique,
+  environment text not null check (environment in ('development', 'production')),
+  updated_at text not null,
+  last_result text
+);
+`;
+
+/**
+ * Teams (shared/teams.ts holds their rules): a team's seats, its work items, what happened to them, and every message
+ * between Botons (in a team or not) with its delivery. An item's `gen` is its assignment generation: every action and
+ * reply names the gen it was about, and one about an older gen changes nothing. The counters the supervisor's gates
+ * read live on the item row, so pruning team_events loses none of them.
+ */
+const TEAMS_39 = `create table teams (
+  id text primary key,
+  name text not null,
+  name_key text not null,
+  goal text not null default '',
+  state text not null default 'active' check (state in ('active', 'paused', 'done', 'archived')),
+  paused_reason text check (paused_reason in ('owner', 'budget', 'no_lead', 'stopped')),
+  limits text not null default '{}',
+  checkin_message_id text,
+  kickoff_told_at text,
+  wrapup_told_at text,
+  last_terminal_at text,
+  completion text,
+  reviewed_at text,
+  -- When the owner last made it active again: its daily budgets count from then (or the last day, if later).
+  resumed_at text,
+  -- When it last stopped being active (paused, finished or archived): resuming moves its items' clocks on by as long.
+  inactive_since text,
+  version integer not null default 1,
+  created_at text not null,
+  updated_at text not null
+);
+create unique index teams_name on teams(name_key) where state <> 'archived';
+create table team_members (
+  team_id text not null references teams(id) on delete cascade,
+  bot_id text not null references bots(id) on delete cascade,
+  role text not null check (role in ('lead', 'member')),
+  role_title text not null default '',
+  responsibilities text not null default '',
+  position integer not null default 0,
+  joined_at text not null,
+  primary key (team_id, bot_id)
+);
+create unique index team_members_lead on team_members(team_id) where role = 'lead';
+create index team_members_bot on team_members(bot_id);
+create table team_items (
+  id text primary key,
+  team_id text not null references teams(id) on delete cascade,
+  title text not null,
+  detail text not null default '',
+  status text not null check (status in ('open', 'working', 'blocked', 'done', 'cancelled')),
+  assignee_bot_id text references bots(id) on delete set null,
+  gen integer not null default 0,
+  gen_started_at text not null,
+  attempts integer not null default 0,
+  nudges integer not null default 0,
+  progress_notes integer not null default 0,
+  total_attempts integer not null default 0,
+  total_checkins integer not null default 0,
+  total_escalations integer not null default 0,
+  held text check (held in ('owner')),
+  blocked_reason text,
+  blocked_need text check (blocked_need in ('lead', 'owner')),
+  result text,
+  closed_reason text,
+  closed_by text,
+  evidence text not null default '[]',
+  escalation text,
+  thread_id text,
+  next_check_at text,
+  last_activity_at text not null,
+  version integer not null default 1,
+  created_by text not null,
+  created_at text not null,
+  updated_at text not null,
+  closed_at text
+);
+create index team_items_team on team_items(team_id, status);
+create index team_items_check on team_items(next_check_at) where status in ('open', 'working', 'blocked');
+create index team_items_assignee on team_items(assignee_bot_id) where assignee_bot_id is not null;
+create table team_events (
+  seq integer primary key autoincrement,
+  team_id text not null references teams(id) on delete cascade,
+  item_id text,
+  gen integer,
+  kind text not null,
+  actor_kind text not null check (actor_kind in ('owner', 'boton', 'server')),
+  actor_bot_id text,
+  actor_name text not null default '',
+  detail text not null default '',
+  wake integer not null default 0,
+  told_at text,
+  idem_key text,
+  origin_key text,
+  -- An item action by a Boton: the assignment (gen) it acted on and the work it came from (chat:<message> or
+  -- run:<run>, the same across a re-run after a restart). A reply counts as the one that finished the item only when
+  -- its own work did.
+  from_gen integer,
+  actor_origin text,
+  at text not null
+);
+create index team_events_item on team_events(item_id, seq) where item_id is not null;
+create index team_events_team on team_events(team_id, kind, at);
+create index team_events_untold on team_events(team_id) where wake = 1 and told_at is null;
+create unique index team_events_idem on team_events(item_id, idem_key) where idem_key is not null;
+create table team_threads (
+  id text primary key,
+  team_id text references teams(id) on delete cascade,
+  item_id text,
+  subject text not null,
+  participants text not null default '[]',
+  message_count integer not null default 0,
+  last_seq integer not null default 0,
+  last_at text not null,
+  owner_read_seq integer not null default 0,
+  closed_at text,
+  created_at text not null
+);
+create index team_threads_team on team_threads(team_id, last_seq);
+create index team_threads_last on team_threads(last_seq);
+create table team_messages (
+  seq integer primary key autoincrement,
+  id text not null unique,
+  thread_id text not null references team_threads(id) on delete cascade,
+  team_id text,
+  item_id text,
+  item_gen integer,
+  kind text not null check (kind in ('request', 'reply', 'system')),
+  from_bot_id text,
+  from_name text not null,
+  to_bot_id text,
+  to_name text not null default '',
+  text text not null,
+  hop integer not null default 1,
+  in_reply_to text,
+  stale integer not null default 0,
+  turn_id text,
+  origin_key text,
+  idem_key text,
+  created_at text not null
+);
+create index team_messages_thread on team_messages(thread_id, seq);
+create unique index team_messages_idem on team_messages(idem_key) where idem_key is not null;
+create index team_messages_pair on team_messages(from_bot_id, to_bot_id, created_at) where kind = 'request';
+create index team_messages_team on team_messages(team_id, created_at) where team_id is not null;
+create index team_messages_at on team_messages(created_at);
+create table team_deliveries (
+  message_id text primary key references team_messages(id) on delete cascade,
+  to_bot_id text not null,
+  reply_to_bot_id text,
+  item_id text,
+  item_gen integer,
+  state text not null check (state in ('queued', 'dispatched', 'handled', 'cancelled', 'expired')),
+  outcome text check (outcome in ('replied', 'quiet', 'failed', 'stopped', 'dropped', 'gone', 'recalled', 'expired', 'lost')),
+  chat_message_id text,
+  turn_id text,
+  queued_at text not null,
+  dispatched_at text,
+  handled_at text,
+  expires_at text not null
+);
+create index team_deliveries_open on team_deliveries(to_bot_id, state) where state in ('queued', 'dispatched');
+create index team_deliveries_chat on team_deliveries(chat_message_id) where chat_message_id is not null;
+create index team_deliveries_item on team_deliveries(item_id, state) where item_id is not null;
+`;
+
+/**
+ * New in 36: Google accounts (the owner's own OAuth client, accounts by Google's stable `sub`, sign-in flows) and
+ * Gmail on them (who may read, draft and send with which account; held drafts and sends with the exact bytes the
+ * owner's card is bound to; inbox cursors). A sign-in belongs to the account, so another Google service adds its
+ * tables, not a second sign-in.
+ */
+const GOOGLE_36 = `
+create table google_client (
+  id integer primary key check (id = 1),
+  client_id text not null,
+  client_secret text not null,
+  generation integer not null,
+  created_at text not null,
+  updated_at text not null
+);
+create table google_accounts (
+  id text primary key,
+  sub text not null unique,
+  email text not null,
+  status text not null check (status in ('connected', 'reconnect', 'disconnected')),
+  status_reason text,
+  paused integer not null default 0,
+  generation integer not null,
+  client_generation integer not null,
+  scope text not null default '',
+  access_token text,
+  access_expires_at text,
+  refresh_token text,
+  refresh_error text,
+  refresh_retry_at text,
+  keepalive_at text,
+  connected_at text,
+  notified_generation integer,
+  created_at text not null,
+  updated_at text not null
+);
+create table google_lifecycle (
+  id integer primary key check (id = 1),
+  revision integer not null
+);
+create table google_flows (
+  state_hash text primary key,
+  lifecycle integer not null,
+  account_id text,
+  device_id text not null,
+  client_generation integer not null,
+  account_generation integer,
+  capabilities text not null,
+  scope text not null,
+  redirect_uri text not null,
+  code_verifier text not null,
+  return_to text not null,
+  created_at text not null,
+  expires_at text not null
+);
+create table gmail_grants (
+  bot_id text not null references bots(id) on delete cascade,
+  account_id text not null references google_accounts(id) on delete cascade,
+  can_read integer not null default 0,
+  can_draft integer not null default 0,
+  can_send integer not null default 0,
+  revision text not null,
+  updated_at text not null,
+  primary key (bot_id, account_id)
+);
+create table gmail_ops (
+  id text primary key,
+  bot_id text not null references bots(id) on delete cascade,
+  account_id text not null,
+  approval_id text unique,
+  op text not null check (op in ('draft', 'send')),
+  payload text not null,
+  payload_sha256 text not null,
+  raw blob,
+  raw_sha256 text not null,
+  account_generation integer not null,
+  grant_revision text not null,
+  state text not null check (state in ('pending', 'approved', 'sending', 'sent', 'not_sent', 'unknown', 'denied', 'expired', 'withdrawn')),
+  reason text,
+  gmail_message_id text,
+  gmail_draft_id text,
+  gmail_thread_id text,
+  created_at text not null,
+  updated_at text not null
+);
+create index gmail_ops_account on gmail_ops(account_id, state);
+create index gmail_ops_bot on gmail_ops(bot_id, created_at);
+create table gmail_op_files (
+  op_id text not null references gmail_ops(id) on delete cascade,
+  idx integer not null,
+  name text not null,
+  type text not null,
+  size integer not null,
+  sha256 text not null,
+  bytes blob not null,
+  primary key (op_id, idx)
+);
+create table gmail_cursors (
+  bot_id text not null references bots(id) on delete cascade,
+  account_id text not null references google_accounts(id) on delete cascade,
+  name text not null,
+  history_id text not null,
+  history_offset integer not null default 0,
+  pending_history_id text,
+  created_at text not null,
+  updated_at text not null,
+  primary key (bot_id, account_id, name)
+);
+`;
+
 const SCHEMA = `
 create table settings (
   key text primary key,
@@ -493,7 +775,7 @@ create table turn_steps (
   at text not null,
   primary key (turn_id, idx)
 );
-${APPROVALS}${APPROVAL_INDEXES}${CONNECTORS_21}${AUDIT_22}${PAIRING_22}${NOTICES_23}${SIDEBAR_27}${SKILL_HISTORY_28}${MESSAGE_INDEXES_29}${REACTIONS_30}${API_REQUESTS_31}`;
+${APPROVALS}${APPROVAL_INDEXES}${CONNECTORS_21}${AUDIT_22}${PAIRING_22}${NOTICES_23}${SIDEBAR_27}${SKILL_HISTORY_28}${MESSAGE_INDEXES_29}${REACTIONS_30}${API_REQUESTS_31}${GOOGLE_36}${PUSH_DEVICES}${TEAMS_39}`;
 
 /** The columns approvals had at 20, all copied as they are. */
 const APPROVAL_COLUMNS_20 =
@@ -807,7 +1089,64 @@ update skill_history set ${author('replaced_by')};`);
   db.exec('pragma user_version = 35;');
 }
 
+/**
+ * 35 to 36 in place, inside openSchema's transaction: the Google and Gmail tables, empty. A connector of the owner's
+ * own already named botons_gmail (Gmail's built-in name from now on) takes the first free name, with every grant,
+ * policy, notice, approval and off switch of it, so none of them ever reads as Gmail's. Nothing else changes.
+ */
+function upgradeFrom35(db: DatabaseSync): void {
+  db.exec(GOOGLE_36);
+  if (db.prepare("select 1 from mcp_servers where name = 'botons_gmail'").get()) {
+    const ref = (id: string) =>
+      !!db.prepare('select 1 from mcp_servers where name = ?').get(id.slice(4)) ||
+      ['approvals', 'connector_policies', 'connector_notices'].some((t) => db.prepare(`select 1 from ${t} where connector_id = ?`).get(id)) ||
+      !!db.prepare('select 1 from bots where instr(connections, ?) > 0').get(JSON.stringify(id)) ||
+      !!db.prepare('select 1 from settings where key = ?').get(`connector_off:${id}`);
+    let n = 2;
+    while (ref(`lib:botons_gmail_${n}`)) n++;
+    const from = 'lib:botons_gmail';
+    const to = `lib:botons_gmail_${n}`;
+    for (const table of ['approvals', 'connector_policies', 'connector_notices']) db.prepare(`update ${table} set connector_id = ? where connector_id = ?`).run(to, from);
+    db.prepare('update bots set connections = replace(connections, ?, ?) where instr(connections, ?) > 0').run(JSON.stringify(from), JSON.stringify(to), JSON.stringify(from));
+    db.prepare('update settings set key = ? where key = ?').run(`connector_off:${to}`, `connector_off:${from}`);
+    db.prepare("update mcp_servers set name = ? where name = 'botons_gmail'").run(`botons_gmail_${n}`);
+  }
+  db.exec('pragma user_version = 36;');
+}
+
+/** Add native push registrations after the Google account migration. */
+function upgradeFrom36(db: DatabaseSync): void {
+  db.exec(`${PUSH_DEVICES}pragma user_version = 37;`);
+}
+
+/** Disable held mail requests and connector grants; keep account data inert for recoverability. */
+function upgradeFrom37(db: DatabaseSync): void {
+  db.exec(`
+    update approvals set status = 'cancelled', note = 'Google connection is unavailable.'
+      where status = 'pending' and id in (select approval_id from gmail_ops);
+    update gmail_ops set state = case when state = 'sending' then 'unknown' else 'withdrawn' end,
+      reason = 'Google connection is unavailable.'
+      where state in ('pending', 'approved', 'sending');
+    delete from gmail_grants;
+  `);
+  // An owner-created server with this name is not the built-in connector.
+  if (!db.prepare("select 1 from mcp_servers where name = 'botons_gmail'").get()) {
+    for (const row of db.prepare('select id, connections from bots').all()) {
+      const connections = JSON.parse(String(row.connections)) as string[];
+      if (connections.includes('lib:botons_gmail')) db.prepare('update bots set connections = ? where id = ?').run(JSON.stringify(connections.filter((id) => id !== 'lib:botons_gmail')), row.id);
+    }
+    for (const table of ['connector_policies', 'connector_notices']) db.prepare(`delete from ${table} where connector_id = ?`).run('lib:botons_gmail');
+    db.prepare('delete from settings where key = ?').run('connector_off:lib:botons_gmail');
+  }
+  db.exec('pragma user_version = 38;');
+}
+
 /** Each step takes the database one version up; openSchema runs them in order from the version it finds. */
+/** 38 to 39 in place: the Teams tables, empty. Asks already in chats stay as they are; threads are recorded from here on. */
+function upgradeFrom38(db: DatabaseSync): void {
+  db.exec(`${TEAMS_39}pragma user_version = 39;`);
+}
+
 const UPGRADES: Record<number, (db: DatabaseSync) => void> = {
   20: upgradeFrom20,
   21: upgradeFrom21,
@@ -824,6 +1163,10 @@ const UPGRADES: Record<number, (db: DatabaseSync) => void> = {
   32: upgradeFrom32,
   33: upgradeFrom33,
   34: upgradeFrom34,
+  35: upgradeFrom35,
+  36: upgradeFrom36,
+  37: upgradeFrom37,
+  38: upgradeFrom38,
 };
 
 /** The older versions openSchema upgrades in place. */

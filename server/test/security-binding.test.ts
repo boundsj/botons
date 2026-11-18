@@ -94,32 +94,34 @@ test("an MCP call's description is part of what the owner approved: a changed on
   assert.equal(again.behavior, 'wait', 'once');
 });
 
-test("a reply goes to its own asker only: asks first, from two colleagues, then the owner's message, each answered in a turn whose whole input holds nothing waiting for another", async () => {
+test("a reply goes to its own asker only: asks from two colleagues, then the owner's message, the owner's answered first, each in a turn whose whole input holds nothing waiting for another", async () => {
   const dave = await s.newBot('Dave');
   const kev = await s.newBot('Kev');
   const bob = await s.newBot('Bobby');
   const echo = (t: TurnRequest) => `Seen: ${t.prompt}`;
   s.mock.script = (t) => (t.env.BOTON_BOT_ID === bob.id ? echo(t) : t.env.BOTON_BOT_ID === dave.id || t.env.BOTON_BOT_ID === kev.id ? 'Thanks.' : null);
   await s.call('POST', `/api/bots/${bob.id}/pause`);
-  // Bobby has no session yet, so each turn starts a fresh one and its input carries the replay too.
+  // Bobby has no session yet, so its first turn starts a fresh one and its input carries the replay too.
   assert.equal((await s.call('POST', `/api/bots/${bob.id}/asks`, { text: 'ASK_A: please answer pong.' }, tokenFor(dave.id))).status, 202);
   assert.equal((await s.call('POST', `/api/bots/${bob.id}/asks`, { text: 'ASK_B: please answer ping.' }, tokenFor(kev.id))).status, 202);
   await s.send(bob.id, 'OWNER_PRIVATE_PENDING: the locker code');
   await s.call('POST', `/api/bots/${bob.id}/resume`);
   await until(() => settled(bob.id) && settled(dave.id) && settled(kev.id) && s.turnsOf(bob.id).length === 3);
-  const [a, b, owner] = s.turnsOf(bob.id);
+  // The owner's waiting message goes before colleagues' (the owner first).
+  const [owner, a, b] = s.turnsOf(bob.id);
   // The whole input each turn was given (context, replay and messages), not what a script chose to read of it.
-  assert.equal(a.sessionId, null);
-  assert.match(a.prompt, /ASK_A/);
-  assert.doesNotMatch(a.prompt, /ASK_B|OWNER_PRIVATE_PENDING/);
-  assert.match(b.prompt, /ASK_B/);
-  assert.doesNotMatch(b.prompt, /OWNER_PRIVATE_PENDING/);
+  assert.equal(owner.sessionId, null);
   assert.match(owner.prompt, /OWNER_PRIVATE_PENDING/);
+  assert.doesNotMatch(owner.prompt, /ASK_A|ASK_B/, "colleagues' waiting asks are not the owner's turn's to see");
+  assert.match(a.prompt, /ASK_A/);
+  assert.doesNotMatch(a.prompt, /ASK_B/);
+  assert.match(b.prompt, /ASK_B/);
+  assert.doesNotMatch(b.prompt, /ASK_A/);
   const replyTo = async (id: string) => (await s.messagesOf(id)).find((m) => m.meta?.kind === 'ask.reply')!.text;
   assert.match(await replyTo(dave.id), /ASK_A/);
-  assert.doesNotMatch(await replyTo(dave.id), /ASK_B|OWNER_PRIVATE_PENDING/);
-  assert.doesNotMatch(await replyTo(kev.id), /OWNER_PRIVATE_PENDING/);
-  for (const t of [...s.turnsOf(dave.id), ...s.turnsOf(kev.id)]) assert.doesNotMatch(t.prompt, /OWNER_PRIVATE_PENDING/);
+  assert.doesNotMatch(await replyTo(dave.id), /ASK_B/);
+  assert.match(await replyTo(kev.id), /ASK_B/);
+  assert.doesNotMatch(await replyTo(kev.id), /ASK_A/);
 });
 
 test("a webhook run never resumes the chat's session and sees only as much of the chat as the owner shared, whatever its session or how its webhook was added", async () => {

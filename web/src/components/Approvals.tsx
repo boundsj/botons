@@ -44,6 +44,7 @@ export function ApprovalCard({ bot, m, onOpenRoutine }: { bot: RowBot; m: Messag
       </div>
     );
   }
+  if (a.tool?.browser) return <p className="hint">Browser request record: {a.status}. No request is waiting.</p>;
   const skill = a.kind === 'skill';
   return (
     <div className={cx('approval-card', `is-${a.status}`, a.from.sandboxed && 'outside')} id={`approval-${a.id}`} role="group" aria-label={`Approval request: ${a.title}`}>
@@ -58,12 +59,7 @@ export function ApprovalCard({ bot, m, onOpenRoutine }: { bot: RowBot; m: Messag
       {a.tool && (
         <>
           <p className="approval-rule">
-            {a.tool.browser ? (
-              <>
-                {bot.name}'s browser is holding a request the page tried to send after {bot.name} clicked or typed. Exactly this is sent, once, if you allow it while{' '}
-                {bot.name} waits. Labels and text from the page are the site's own, not proof of what it does:
-              </>
-            ) : a.tool.rule ? (
+            {a.tool.rule ? (
               <>
                 A tool call your Ask first rule <code>{a.tool.rule}</code> paused. Exactly this runs if you allow it:
               </>
@@ -179,7 +175,7 @@ function Decide({ a, bot, skill }: { a: Approval; bot: RowBot; skill: boolean })
       </div>
       {a.tool && new Date(a.tool.waitUntil).getTime() > now ? (
         <p className="approval-expiry is-waiting" title={dateTime(a.tool.waitUntil)}>
-          {bot.name} is waiting for your answer, until {clock(a.tool.waitUntil)}. After that it carries on without {a.tool.browser ? 'sending it' : 'this call'}.
+          {bot.name} is waiting for your answer, until {clock(a.tool.waitUntil)}. After that it carries on without {'this call'}.
         </p>
       ) : (
         a.expiresAt && (
@@ -201,30 +197,17 @@ function Outcome({ a, bot }: { a: Approval; bot: RowBot }) {
     case 'allowed': {
       const rule = a.tool?.rule ?? a.action;
       text = a.auto ? `Allowed without asking: “${rule}” is always allowed` : a.kind === 'skill' ? 'Approved for every Boton' : a.always ? `Allowed, and “${rule}” from now on` : 'Allowed';
-      if (a.tool?.browser) {
-        const d = a.tool.usedAt ? a.tool.delivery : null;
-        text =
-          d === 'sent'
-            ? 'Allowed: sent once'
-            : d === 'unknown'
-              ? 'Allowed and sent, but the connection broke before the site answered: it may have arrived. Check on the site before asking for it again'
-              : d === 'sending'
-                ? 'Allowed: sending. If this stays, the server stopped mid-send and it may have arrived: check on the site'
-                : d === 'not-sent'
-                ? 'Allowed, but not sent: it failed before it left'
-                  : 'Allowed, but not sent: the page, its cookies, the browser or the sites changed first';
-      }
-      else if (a.tool && !a.auto) text += a.tool.inTurn ? `: ${bot.name} went ahead` : a.tool.usedAt ? `: ${bot.name} made the call in a later turn` : `: ${bot.name} gets a turn to make the call`;
+      if (a.tool && !a.auto) text += a.tool.inTurn ? `: ${bot.name} went ahead` : a.tool.usedAt ? `: ${bot.name} made the call in a later turn` : `: ${bot.name} gets a turn to make the call`;
       break;
     }
     case 'denied':
-      text = a.kind === 'skill' ? `Kept as ${bot.name}'s own` : a.tool?.browser ? 'Denied: not sent' : a.tool?.inTurn ? `Denied: ${bot.name}'s call failed` : 'Denied';
+      text = a.kind === 'skill' ? `Kept as ${bot.name}'s own` : a.tool?.inTurn ? `Denied: ${bot.name}'s call failed` : 'Denied';
       break;
     case 'expired':
       text = 'Expired: nobody decided in time, so nothing was done';
       break;
     default:
-      text = a.kind === 'skill' ? 'The skill was deleted' : a.tool?.browser ? 'Withdrawn: the browser step ended first, so nothing was sent' : `Withdrawn by ${bot.name}`;
+      text = a.kind === 'skill' ? 'The skill was deleted' : `Withdrawn by ${bot.name}`;
   }
   return (
     <div className={cx('approval-outcome', `is-${a.status}`)} role="status">

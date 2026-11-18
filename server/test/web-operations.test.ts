@@ -116,6 +116,21 @@ test('health: push turned off is said plainly, and a test can still be sent', ()
   assert.match(changed, /Push notifications<\/strong><span class="sr-only"> \(working\)<\/span>: <span>none sent since the push settings changed/);
 });
 
+test('health: push to the app shows only when the server is set up for it, and says what failed and where to look', () => {
+  const none = render({ loaded: { data, at: now() }, error: null, onRetry: noop });
+  assert.doesNotMatch(none, /Push to the app/);
+  const at = new Date(Date.now() - 5000).toISOString();
+  const apns = (over: object) => render({ loaded: { data: { ...data, push: { ...data.push, apns: { devices: 1, last: null, lastSuccessAt: null, failuresInARow: 0, since: at, ...over } } }, at: now() }, error: null, onRetry: noop });
+  assert.match(apns({ devices: 0 }), /Push to the app<\/strong><span class="sr-only"> \(working\)<\/span>: <span>no device has registered yet; none sent since the server started/);
+  assert.match(apns({ last: { at, ok: true, reason: 'notify', status: 200, problem: null } }), /1 device registered; last push went through <time/);
+  const failed = apns({ failuresInARow: 2, last: { at, ok: false, reason: 'notify', status: 403, problem: 'refused' } });
+  assert.match(failed, /Push to the app<\/strong><span class="sr-only"> \(needs attention\)/);
+  assert.match(failed, /the last push failed <time[^>]*>just now<\/time> \(2 in a row\): Apple&#x27;s push service refused it \(403\) or the key file could not be read/);
+  const summary = diagnostics({ ...data, push: { ...data.push, apns: { devices: 2, last: { at, ok: false, reason: 'notify', status: 403, problem: 'refused' }, lastSuccessAt: null, failuresInARow: 3, since: at } } }, null);
+  assert.match(summary, new RegExp(`^App push: 2 registered, last failed \\(refused, HTTP 403\\) ${at}, 3 failures in a row$`, 'm'));
+  assert.doesNotMatch(diagnostics(data, null), /App push/);
+});
+
 test('health: low disk space needs attention and says what stops and what to free', () => {
   const ok = render({ loaded: { data, at: now() }, error: null, onRetry: noop });
   assert.match(ok, /Disk space<\/strong><span class="sr-only"> \(working\)<\/span>: <span>50 GB free of 100 GB \(50%\); the database is 3 MB/);

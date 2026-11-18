@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { BACKDROPS, DEFAULT_LOOK, describeLook, GLOWS, isEarlierLook, LOOK_LABELS, lookFor, lookFromTater, PARTS, parseLook, randomLook, seeded, SHELLS } from '../../shared/look.ts';
+import { BACKDROPS, DEFAULT_LOOK, describeLook, drawableLook, GLOWS, hash32, isEarlierLook, keepLeftOut, LOOK_LABELS, lookFor, lookFromTater, PARTS, parseLook, PRESETS, randomLook, seeded, SHELLS } from '../../shared/look.ts';
 import { BACKDROP_NAMES, BODIES, COLOR_NAMES, type CritterLook, EARS, EYES, MARKS, MOUTHS, parseCritter } from '../../shared/look-critter.ts';
 import { parseTater, TATER_PARTS, type TaterLook, taterFromCritter, taterLookFor } from '../../shared/look-tater.ts';
-import { GLASS, type Lod, lodFor, mix, OFF_RIM, skirtOf, STATES, botonInner } from '../../shared/boton.ts';
+import { FEET_SCALE, GLASS, type Lod, lodFor, mix, OFF_RIM, skirtOf, STATES, botonInner } from '../../shared/boton.ts';
 import type { BotonLook } from '../../shared/types.ts';
 
 // WCAG 2.2 relative luminance and contrast.
@@ -30,7 +30,7 @@ test('parts: a look is exactly its fixed names; anything else is refused, and ex
   assert.deepEqual(parseLook(DEFAULT_LOOK), DEFAULT_LOOK);
   assert.deepEqual(parseLook({ ...DEFAULT_LOOK, nose: 'big', toast: 'golden' }), DEFAULT_LOOK);
   for (const part of [...Object.keys(PARTS), 'cheeks']) {
-    assert.equal(parseLook({ ...DEFAULT_LOOK, [part]: undefined }), null, `missing ${part}`);
+    if (part !== 'feet') assert.equal(parseLook({ ...DEFAULT_LOOK, [part]: undefined }), null, `missing ${part}`);
     assert.equal(parseLook({ ...DEFAULT_LOOK, [part]: '<g onload="x">' }), null, `markup in ${part}`);
     assert.equal(parseLook({ ...DEFAULT_LOOK, [part]: 1 }), null, `a number in ${part}`);
   }
@@ -39,8 +39,23 @@ test('parts: a look is exactly its fixed names; anything else is refused, and ex
   assert.equal(parseLook({ ...DEFAULT_LOOK, cheeks: 'true' }), null);
 });
 
+test('parts: feet are optional, so a look stored before them stands on nothing, and a client that leaves them out keeps them', () => {
+  const { feet: _, ...stored } = { ...DEFAULT_LOOK, shape: 'stack' as const };
+  assert.deepEqual(parseLook(stored), { ...stored, feet: 'none' });
+  assert.deepEqual(lookFor(stored, 'bot_a'), { ...stored, feet: 'none' });
+  assert.equal(parseLook({ ...DEFAULT_LOOK, feet: 'skates' }), null);
+  assert.equal(parseLook({ ...DEFAULT_LOOK, feet: null }), null);
+  const current = { ...DEFAULT_LOOK, feet: 'wheel' as const };
+  // An older app sends every part it knows and no feet: the Boton keeps its wheel.
+  const older = { ...stored, eyes: 'happy' };
+  assert.deepEqual(keepLeftOut(older, parseLook(older)!, current), { ...parseLook(older)!, feet: 'wheel' });
+  // A client that knows feet changes them, or takes them off.
+  for (const feet of ['legs', 'none'] as const) assert.equal(keepLeftOut({ ...DEFAULT_LOOK, feet }, { ...DEFAULT_LOOK, feet }, current).feet, feet);
+  assert.deepEqual(keepLeftOut(older, parseLook(older)!, null), parseLook(older));
+});
+
 test('parts: button-bot parts only, every one named for the builder, nothing from a potato', () => {
-  assert.deepEqual(Object.keys(PARTS).sort(), ['arms', 'backdrop', 'brows', 'ears', 'eyes', 'glow', 'mouth', 'panel', 'shape', 'shell', 'top', 'visor']);
+  assert.deepEqual(Object.keys(PARTS).sort(), ['arms', 'backdrop', 'brows', 'ears', 'eyes', 'feet', 'glow', 'mouth', 'panel', 'shape', 'shell', 'top', 'visor']);
   for (const [part, values] of Object.entries(PARTS)) for (const v of values) assert.ok((LOOK_LABELS as Record<string, Record<string, string>>)[part][v], `${part} ${v} has a label`);
   const every = `${Object.values(PARTS).flat().join(' ')} ${Object.values(LOOK_LABELS).flatMap((l) => Object.values(l)).join(' ')}`;
   assert.doesNotMatch(every, /potato|tater|toast|crust|crumb|fry|fries|veggie|golden/i);
@@ -53,6 +68,36 @@ test('random looks are always valid, and the same seed gives the same look', () 
     assert.deepEqual(parseLook(look), look);
   }
   assert.deepEqual(randomLook(seeded(42)), randomLook(seeded(42)));
+  // One draw per part, feet last: keep the same look for a seed across clients.
+  assert.deepEqual(randomLook(seeded(42)), { shape: 'stack', shell: 'sun', glow: 'ice', eyes: 'happy', brows: 'none', mouth: 'calm', top: 'none', ears: 'pods', visor: 'band', panel: 'holes', arms: 'nubs', backdrop: 'grid', cheeks: false, feet: 'none' });
+  assert.deepEqual(randomLook(seeded(hash32('look:Kevin'))), { shape: 'hex', shell: 'teal', glow: 'amber', eyes: 'dots', brows: 'straight', mouth: 'smirk', top: 'propeller', ears: 'bear', visor: 'goggles', panel: 'none', arms: 'wave', backdrop: 'grid', cheeks: false, feet: 'hover' });
+});
+
+test('random looks vary the silhouette: every body and every kind of feet turns up, and no one body takes over a crowd', () => {
+  const r = seeded(11);
+  const shapes = new Map<string, number>();
+  const feet = new Set<string>();
+  for (let i = 0; i < 4000; i++) {
+    const look = randomLook(r);
+    shapes.set(look.shape, (shapes.get(look.shape) ?? 0) + 1);
+    feet.add(look.feet);
+  }
+  assert.deepEqual([...shapes.keys()].sort(), [...PARTS.shape].sort());
+  assert.deepEqual([...feet].sort(), [...PARTS.feet].sort());
+  assert.ok(Math.max(...shapes.values()) < 4000 * 0.3, JSON.stringify(Object.fromEntries(shapes)));
+});
+
+test('presets: whole, distinct looks with plain names, every body among them', () => {
+  assert.ok(PRESETS.length >= 10);
+  for (const p of PRESETS) {
+    assert.deepEqual(parseLook(p.look), p.look, p.id);
+    assert.match(p.name, /^[A-Z][a-z]+( [a-z]+)?$/, p.name);
+    assert.match(p.id, /^[a-z-]+$/);
+  }
+  assert.equal(new Set(PRESETS.map((p) => p.id)).size, PRESETS.length);
+  assert.equal(new Set(PRESETS.map((p) => JSON.stringify(p.look))).size, PRESETS.length);
+  assert.deepEqual(PRESETS[0].look, DEFAULT_LOOK);
+  for (const shape of PARTS.shape) assert.ok(PRESETS.some((p) => p.look.shape === shape), `a preset with the ${shape} body`);
 });
 
 test('every tater choice maps to a valid Boton, the same every time, keeping its face, arms and cheeks', () => {
@@ -72,7 +117,7 @@ test('every tater choice maps to a valid Boton, the same every time, keeping its
   // Every tater choice changes the Boton, so a sidebar of them stays recognizable (cream and butter share mist).
   const choices = Object.values(TATER_PARTS).reduce((n, v) => n + v.length - 1, 1) * 2;
   assert.ok(seen.size >= choices - 2, `${seen.size} of ${choices}`);
-  assert.deepEqual(lookFromTater({ ...TATER, shape: 'tall', toast: 'purple', hat: 'headphones', glasses: 'round', extra: 'scarf', wear: 'sky', backdrop: 'cocoa', mouth: 'w', eyes: 'buttons' }), { shape: 'key', shell: 'violet', glow: 'cyan', eyes: 'rings', brows: 'none', mouth: 'wave', top: 'none', ears: 'pods', visor: 'goggles', panel: 'grill', arms: 'nubs', backdrop: 'plum', cheeks: true });
+  assert.deepEqual(lookFromTater({ ...TATER, shape: 'tall', toast: 'purple', hat: 'headphones', glasses: 'round', extra: 'scarf', wear: 'sky', backdrop: 'cocoa', mouth: 'w', eyes: 'buttons' }), { shape: 'key', shell: 'violet', glow: 'cyan', eyes: 'rings', brows: 'none', mouth: 'wave', top: 'none', ears: 'pods', visor: 'goggles', panel: 'grill', arms: 'nubs', feet: 'none', backdrop: 'plum', cheeks: true });
   // The backdrop keeps its light or dark.
   for (const b of TATER_PARTS.backdrop) assert.equal(['night', 'plum', 'grid'].includes(lookFromTater({ ...TATER, backdrop: b }).backdrop), ['cocoa', 'night'].includes(b), b);
 });
@@ -167,8 +212,46 @@ test('the renderer: detail drops by size, and motion classes appear only where t
   for (const state of STATES.filter((s) => s !== 'idle')) assert.notEqual(botonInner(DEFAULT_LOOK, { size: 24, uid: 'x', state, still: true }), idle, state);
 });
 
+test('the renderer: bodies and feet stay inside the avatar, and a Boton with feet draws the rest smaller above them', () => {
+  for (const shape of PARTS.shape)
+    for (const feet of PARTS.feet)
+      for (const state of STATES) {
+        const look: BotonLook = { ...DEFAULT_LOOK, shape, feet, top: 'none', arms: 'none' };
+        const svg = botonInner(look, { state, lod: 2, uid: 'f', still: true });
+        // Every coordinate the feet use sits inside the round frame (radius 50 about 50, 50).
+        if (feet !== 'none') {
+          assert.match(svg, new RegExp(`<svg x="7" y="1.68" width="${100 * FEET_SCALE}" height="${100 * FEET_SCALE}" viewBox="0 0 100 100" overflow="visible">`));
+          const under = svg.slice(svg.indexOf('<g>') + 3, svg.indexOf('<svg x='));
+          for (const [, y] of under.matchAll(/(?:y|cy)="([\d.]+)"/g)) assert.ok(Number(y) < 97, `${shape} ${feet}: ${y}`);
+        } else assert.doesNotMatch(svg, /<svg /);
+      }
+});
+
+test('a look with names unknown to this build (from a newer server) draws and reads as the first choice of each part, never failing', () => {
+  const newer = { ...DEFAULT_LOOK, shape: 'blimp', shell: 'chrome', glow: 'uv', eyes: 'lasers', brows: 'unibrow', mouth: 'beak', top: 'mohawk', ears: 'wings', visor: 'mask', panel: 'screen', arms: 'tentacles', feet: 'rockets', backdrop: 'space', cheeks: 'yes' } as unknown as BotonLook;
+  const first = Object.fromEntries([...Object.entries(PARTS).map(([part, values]) => [part, values[0]]), ['cheeks', false]]) as unknown as BotonLook;
+  assert.deepEqual(drawableLook(newer), first);
+  for (const state of STATES) for (const lod of [0, 1, 2] as const) assert.equal(botonInner(newer, { state, lod, uid: 'u' }), botonInner(first, { state, lod, uid: 'u' }));
+  assert.equal(describeLook(newer), describeLook(first));
+  // A look missing feet (from a server before them) stands on nothing; a known look is returned as it is.
+  const { feet: _, ...noFeet } = DEFAULT_LOOK;
+  assert.equal(drawableLook(noFeet as BotonLook).feet, 'none');
+  assert.equal(drawableLook(DEFAULT_LOOK), DEFAULT_LOOK);
+});
+
+test('the renderer: no part is a fin-shaped blade (arms end in hands, the crest is soft, the fins are slats)', () => {
+  const svg = (o: Partial<BotonLook>) => botonInner({ ...DEFAULT_LOOK, ...o }, { lod: 2, uid: 'n', still: true });
+  // Nubs hang at the sides with a round hand each.
+  assert.equal((svg({ arms: 'nubs' }).match(/<circle cx="[\d.]+" cy="[\d.]+" r="3.3"/g) ?? []).length, 2);
+  // The crest is curves, the fins three slats a side: no straight-edged triangle.
+  assert.doesNotMatch(svg({ top: 'fin' }), /<path d="M[\d.]+ [\d.]+L[\d.]+ [\d.]+L[\d.]+ [\d.]+Z"/);
+  assert.equal((svg({ ears: 'fins' }).match(/a1.5 1.5 0 0 1 0 3h/g) ?? []).length, 6);
+});
+
 test('describeLook says what a screen reader needs', () => {
   assert.equal(describeLook(DEFAULT_LOOK), 'Snow round Boton with a cyan glow and an antenna, on night');
   assert.equal(describeLook({ ...DEFAULT_LOOK, top: 'twin', ears: 'pods', visor: 'goggles', panel: 'holes', glow: 'amber', shell: 'sun', shape: 'key', backdrop: 'grid' }), 'Sun key Boton with an amber glow, twin antennas, pods for ears, goggles and button holes, on grid');
   assert.equal(describeLook({ ...DEFAULT_LOOK, top: 'none', visor: 'band', panel: 'leds' }), 'Snow round Boton with a cyan glow, a band and a row of lights, on night');
+  assert.equal(describeLook({ ...DEFAULT_LOOK, shape: 'tall', feet: 'wheel', top: 'crown', ears: 'cat', visor: 'shades' }), 'Snow tower Boton with a cyan glow, a crown, cat ears, shades and a wheel, on night');
+  assert.equal(describeLook({ ...DEFAULT_LOOK, shape: 'saucer', feet: 'hover', top: 'fin', panel: 'heart' }), 'Snow saucer Boton with a cyan glow, a crest, a heart and a hover jet, on night');
 });

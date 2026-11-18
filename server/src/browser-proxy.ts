@@ -7,57 +7,27 @@ import { hostOf, isPrivateHost, judgeRequest, portOf, siteFor } from './browser-
 import { allowance, refusedAddress } from './ssrf.ts';
 
 /*
- * The one way out of a Boton's browser: Chromium is started with this as its proxy for every address, loopback
- * included, and with UDP that bypasses proxies (WebRTC) and QUIC off. Each connection is checked against the
- * Boton's sites as they stand at that moment, then the name is resolved here and every address checked, so a
- * redirect, a script or a name that resolves to a private address can't reach what the owner didn't list. Plain HTTP
- * is forwarded here, and only reads (GET, HEAD), but in the owner's handover (ProxyPolicy.writes). A tunnel, or a
- * plain HTTP response still streaming, lasts only while its host stays allowed: recheck() cuts the ones a change of
- * sites, or the browser being turned off, no longer allows, so nothing more of them reaches the page.
- *
- * A browser that loads pages (a Boton's, and the owner's handover: ProxyOptions.intercept) gets no tunnel to a site at
- * all: its HTTPS ends here, with a certificate made for that one browser (browser-cert.ts), and every request inside
- * is judged and forwarded as plain HTTP is, then sent on over TLS this proxy verifies. So its writes are decided where
- * every byte leaves, whatever in Chromium sent them: a page, a worker, or a document as it unloads (which Playwright's
- * routing never sees). Without intercept (a browser that loads nothing) HTTPS goes as a tunnel to an allowed host:port.
- *
- * Sealed (seal(true): the Boton clicked or typed on the page), nothing from Chromium goes at all: every open tunnel
- * and exchange is cut and every new one refused, whatever made it. That holds where Chromium's routing can't: a
- * request Playwright can name no frame for (a keepalive fetch or beacon as a document or frame unloads) is let go by
- * Playwright without asking the routing. The one way through then is a pass (passOnce), made for the send of a
- * request the owner allowed on a card: one tunnel, to one host:port, by credentials Chromium never has. A pass's
- * tunnel is never ended here (intercept or not): its sender verifies the site's own certificate through it.
- *
- * Every request and tunnel is owned from the moment it arrives until it is cut or done, by the generation it arrived
- * in. Sealing, unsealing and closing each start a new generation and cut everything of the old one, including what
- * is still waiting on its name or its connection; and after every wait (the name resolved, the site connected) work
- * goes on only if its generation is still the current one, the proxy unsealed (or it holds a pass of this
- * generation) and its site still allowed. So nothing that arrived before a seal goes once it is sealed, and nothing
- * from before a seal goes on the authority of a later unseal.
+ * An authenticated proxy for the managed browser. Every HTTP method follows the same allowed-site policy.
+ * Names resolve only to permitted public addresses, unless the owner explicitly allowed a private host:port.
+ * HTTPS uses the same checks inside its tunnel and verifies the upstream certificate. Generation checks cut
+ * connections on closure or policy changes, including pending DNS/connect work. Request content is never logged.
  */
 
 /** What the proxy enforces now: off (the Boton lost its browser, or the server is stopping), or these sites. */
 export interface ProxyPolicy {
   enabled: boolean;
   sites: string[];
-  /**
-   * Writes (POST, PUT, PATCH, DELETE; plain HTTP, or HTTPS ended here) to these sites go too: only in the owner's
-   * handover, right after the owner's own click, key or typing (browser-handover.ts). Never for a Boton's browser.
-   */
-  writes?: boolean;
 }
 
 export interface BrowserProxy {
   port: number;
   /** Cuts every open tunnel, plain HTTP exchange and request still being resolved that the current policy no longer allows. */
   recheck(): void;
-  /** A new generation either way: everything open or under way is cut. Sealed, nothing new goes but through a pass. */
+  /** A new generation either way: everything open or under way is cut. Sealed, nothing new goes. */
   seal(on: boolean): void;
   /** A new generation, sealed or not as it was: everything open or under way is cut (the owner opened another address). */
   cut(): void;
   readonly sealed: boolean;
-  /** Credentials for one tunnel to host:port, valid for a minute and only in the generation they were made in: the send of an allowed request. */
-  passOnce(host: string, port: number): { username: string; password: string };
   /** Credentials made for this proxy, given only to its Chromium: anything else on this computer (a Boton's shell) gets 407. */
   username: string;
   password: string;
@@ -72,10 +42,9 @@ export interface ProxyOptions {
   /**
    * HTTPS ends here with this certificate (the one its Chromium trusts), and each request inside is judged on its own
    * and sent on over TLS verified against the system's roots (and `ca`, tests only). Every browser that loads pages.
-   * A pass's tunnel is the one exception: it goes through as is.
    */
   intercept?: { key: string; cert: string; ca?: string[] };
-  /** A write about to leave for its site (only ever while policy().writes): the journal's record of it. */
+  /** A non-read method about to leave for its allowed site: the journal's record of it. */
   onWrite?: (url: string, method: string) => void;
   /**
    * A site that could not be reached: its name not found, or none of its addresses answered, or its certificate not
@@ -172,18 +141,16 @@ async function dial(addresses: string[], port: number, open: (address: string, p
   return ok() ? 'failed' : 'stale';
 }
 
-const SEALED = 'the page was clicked or typed on, so nothing more from the browser goes without a card (open an address to go on)';
+const SEALED = 'the browser is closing or unavailable';
 const STALE = 'the browser was sealed, reopened, turned off or the site removed while it waited';
-const STALE_WRITE = 'it is a write, and while it waited the moment for writes passed, or the browser was sealed, reopened, turned off or the site removed';
+const STALE_WRITE = STALE;
 
 /** A request or tunnel from its arrival until it is cut or done: what it may still do is decided against `gen`. */
 interface Work {
   gen: number;
   host: string;
   port: number;
-  /** It came with a pass (a card's send): it may go while sealed, but only in the generation the pass was made in. */
-  pass: boolean;
-  /** A write not sent yet: it may still go only while the policy allows writes (checked after every wait, as the rest). */
+  /** A non-read method, for request metadata only; never an approval gate. */
   write: boolean;
   /** Cut: no connection is made for it, and whatever it has open is destroyed. */
   dead: boolean;
@@ -212,10 +179,10 @@ export function startBrowserProxy(policy: () => ProxyPolicy, onBlocked: (url: st
   const ca = options.intercept?.ca?.length ? [...rootCertificates, ...options.intercept.ca] : undefined;
   const allowedNow = (w: Work) => {
     const p = policy();
-    return p.enabled && !!siteFor(p.sites, w.host, w.port) && (!w.write || p.writes === true);
+    return p.enabled && !!siteFor(p.sites, w.host, w.port);
   };
   /** Whether `w` may still go on, checked after every wait and right before anything leaves for the site. */
-  const current = (w: Work) => !closed && !w.dead && w.gen === generation && (w.pass || !sealed) && allowedNow(w);
+  const current = (w: Work) => !closed && !w.dead && w.gen === generation && !sealed && allowedNow(w);
   const own = (w: Work) => {
     work.add(w);
     return w;
@@ -232,20 +199,9 @@ export function startBrowserProxy(policy: () => ProxyPolicy, onBlocked: (url: st
     const got = Buffer.from(String(req.headers['proxy-authorization'] ?? ''));
     return got.length === expected.length && timingSafeEqual(got, expected);
   };
-  /** Passes not yet used, by their whole Proxy-Authorization value. */
-  const passes = new Map<string, { target: string; until: number; gen: number }>();
-  /** Whether this CONNECT carries a pass for exactly its host:port, made in this generation; spent here either way. */
-  const takePass = (req: IncomingMessage, target: string): boolean => {
-    const got = String(req.headers['proxy-authorization'] ?? '');
-    const p = passes.get(got);
-    if (!p) return false;
-    passes.delete(got);
-    return p.target === target && p.until > Date.now() && p.gen === generation;
-  };
-  /** A new generation: every pass and everything of the old one is cut, under way or open. */
+  /** A new generation: everything of the old one is cut, under way or open. */
   const nextGeneration = () => {
     generation++;
-    passes.clear();
     for (const w of [...work]) drop(w);
   };
   const challenge = 'HTTP/1.1 407 Proxy Authentication Required\r\nproxy-authenticate: Basic realm="botons"\r\ncontent-length: 0\r\n\r\n';
@@ -294,8 +250,8 @@ export function startBrowserProxy(policy: () => ProxyPolicy, onBlocked: (url: st
     const method = (req.method ?? 'GET').toUpperCase();
     const p = policy();
     const verdict = judgeRequest(u.href, method, p.sites);
-    const write = !verdict.ok && !!verdict.write;
-    if (!p.enabled || (!verdict.ok && !(write && p.writes === true))) {
+    const write = !['GET', 'HEAD'].includes(method);
+    if (!p.enabled || !verdict.ok) {
       const why = p.enabled ? (verdict as { why: string }).why : 'the browser is turned off';
       onBlocked(u.href, why);
       return refuse(res, 403, why);
@@ -308,7 +264,6 @@ export function startBrowserProxy(policy: () => ProxyPolicy, onBlocked: (url: st
       gen: generation,
       host,
       port,
-      pass: false,
       write,
       dead: false,
       cut: () => {
@@ -428,13 +383,12 @@ export function startBrowserProxy(policy: () => ProxyPolicy, onBlocked: (url: st
     if (!m) return fail('not a host:port');
     const host = m[1].replace(/^\[|\]$/g, '').toLowerCase();
     const port = Number(m[2]);
-    const pass = takePass(req, `${host}:${port}`);
-    if (!pass && !authorized(req)) return void client.end(challenge);
+    if (!authorized(req)) return void client.end(challenge);
     if (closed) return fail('the browser is closing');
-    if (sealed && !pass) return fail(SEALED);
+    if (sealed) return fail(SEALED);
     const p = policy();
     if (!p.enabled) return fail('the browser is turned off');
-    if (secure && !pass) {
+    if (secure) {
       // Chromium's HTTPS ends here, and each request inside is judged and sent on by itself.
       if (!siteFor(p.sites, host, port)) return fail(`${host}:${port} is not one of the allowed sites`);
       let tls: TLSSocket | null = null;
@@ -442,7 +396,6 @@ export function startBrowserProxy(policy: () => ProxyPolicy, onBlocked: (url: st
         gen: generation,
         host,
         port,
-        pass: false,
         write: false,
         dead: false,
         cut: () => {
@@ -472,7 +425,6 @@ export function startBrowserProxy(policy: () => ProxyPolicy, onBlocked: (url: st
       gen: generation,
       host,
       port,
-      pass,
       write: false,
       dead: false,
       cut: () => {
@@ -559,12 +511,6 @@ export function startBrowserProxy(policy: () => ProxyPolicy, onBlocked: (url: st
           nextGeneration();
         },
         cut: () => nextGeneration(),
-        passOnce: (host, port) => {
-          const user = 'botons-send';
-          const pw = randomBytes(24).toString('base64url');
-          passes.set(`Basic ${Buffer.from(`${user}:${pw}`).toString('base64')}`, { target: `${host.toLowerCase()}:${port}`, until: Date.now() + 60_000, gen: generation });
-          return { username: user, password: pw };
-        },
         inFlight: () => ({ pending: work.size - tunnels.size - exchanges.size, tunnels: tunnels.size, exchanges: exchanges.size, sockets: sockets.size }),
         close: () =>
           new Promise<void>((done) => {

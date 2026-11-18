@@ -1,5 +1,4 @@
 import { BrainCliActions } from './BrainCliActions.tsx';
-import { BrainHomes } from './BrainHomes.tsx';
 import { useActiveRef } from './PageActive.ts';
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../api.ts';
@@ -8,6 +7,9 @@ import { brainView, botonsOn, loginCommand, signInFinished } from '../brains.ts'
 
 import { withCode } from './BrainWarning.tsx';
 import { copyLine, terminalNote } from '../../../shared/versions.ts';
+
+/** Codex's sign-in is the server account's own: say so wherever it can be changed. */
+export const CODEX_SHARED = "This is the server account's own Codex sign-in: Codex and anything else run as that user use it too, so signing in to another account changes it for them as well.";
 
 type Choice = { provider: string; model: string; cap: number | null };
 export function Copy({ text }: { text: string }) {
@@ -29,7 +31,6 @@ export function BrainList({ onChoose }: { onChoose: (choice: Choice) => void }) 
   const [cap, setCap] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [separateLogin, setSeparateLogin] = useState(false);
   // A ready brain shows only "Change sign-in"; this opens its choices.
   const [changing, setChanging] = useState(false);
   const [login, setLogin] = useState<Awaited<ReturnType<typeof api.brainLogin>> | null>(null);
@@ -37,7 +38,7 @@ export function BrainList({ onChoose }: { onChoose: (choice: Choice) => void }) 
   // Choosing keeps the choices open; only a sign-in that finishes folds them back.
   const lastLogin = useRef(login?.state);
   useEffect(() => {
-    if (signInFinished(lastLogin.current, login?.state)) { setChanging(false); setSeparateLogin(false); }
+    if (signInFinished(lastLogin.current, login?.state)) setChanging(false);
     lastLogin.current = login?.state;
   }, [login?.state]);
   const p = providers.find(p => p.id === provider);
@@ -72,8 +73,9 @@ export function BrainList({ onChoose }: { onChoose: (choice: Choice) => void }) 
     {path === 'subscription' && <div className="setup-field">
       <label>Subscription<select value={provider} onChange={e => { setProvider(e.target.value); onChoose({provider: e.target.value, model: '', cap: null}); }}><option value="codex-cli">ChatGPT</option><option value="claude-cli">Claude</option></select></label>
       <BrainCliActions provider={provider as 'codex-cli' | 'claude-cli'} />
-      {p && !separateLogin && !changing && login?.state !== 'waiting' && (p.readiness.state === 'ready' || p.readiness.state === 'usage-limited') ? <p role="status">{p.readiness.state === 'ready' ? '✓ Signed in' : brainView(p, {container}).why} · <button type="button" className="link-btn" aria-expanded="false" onClick={() => setChanging(true)}>Change sign-in</button></p> : <>
+      {p && !changing && login?.state !== 'waiting' && (p.readiness.state === 'ready' || p.readiness.state === 'usage-limited') ? <p role="status">{p.readiness.state === 'ready' ? '✓ Signed in' : brainView(p, {container}).why} · <button type="button" className="link-btn" aria-expanded="false" onClick={() => setChanging(true)}>Change sign-in</button></p> : <>
         <p className="hint">Approve sign-in with the provider. Botons never sees your password; the provider’s app keeps the credential on this server.</p>
+        {provider === 'codex-cli' && <p className="hint">{CODEX_SHARED}</p>}
         {provider === 'codex-cli' && <button type="button" className="btn primary" disabled={busy || login?.state === 'waiting'} onClick={() => void run(async () => { setLogin(await api.startBrainLogin()); choose(); })}>Sign in to ChatGPT</button>}
         {provider === 'codex-cli' && login?.state === 'waiting' && <div role="status"><p>Waiting for you to approve sign-in…</p>{login.url && login.code && <><p><code>{login.code}</code> <Copy text={login.code} /></p><a href={login.url} target="_blank" rel="noreferrer">Open sign-in page</a></>}<button type="button" className="btn small" onClick={() => void run(async () => setLogin(await api.cancelBrainLogin()))}>Cancel sign-in</button></div>}
         <p>In a terminal on this server (e.g. your ssh session) run:</p><p><code>{command}</code> <Copy text={command} /></p>
@@ -81,7 +83,6 @@ export function BrainList({ onChoose }: { onChoose: (choice: Choice) => void }) 
         {login && ['fallback', 'timed-out'].includes(login.state) && <p role="status">Browser sign-in could not finish. Try again or use the terminal command above.</p>}
       </>}
     </div>}
-    {path === 'subscription' && <BrainHomes open={changing} onOpen={setChanging} onSeparate={() => { setSeparateLogin(true); setPath('subscription'); setProvider('codex-cli'); void run(async () => { setLogin(await api.startBrainLogin()); }); }} />}
     {path === 'api' && <div className="setup-field">
       <label>Provider<select value={keyProvider} onChange={e => { setKeyProvider(e.target.value as 'anthropic' | 'openai'); setKey(''); setModel(''); onChoose({provider: `${e.target.value}-api`, model: '', cap: cap ? Number(cap) : null}); }}><option value="anthropic">Anthropic (Claude)</option><option value="openai">OpenAI</option></select></label>
       <label>API key<input type="password" value={key} onChange={e => setKey(e.target.value)} autoComplete="off" spellCheck={false} data-1p-ignore /></label>

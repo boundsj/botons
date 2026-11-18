@@ -4,6 +4,20 @@ What changes for people running Botons. Release notes are written from this when
 
 ## Unreleased
 
+- **Teams.** Give Botons shared work with a lead, seats, assignments, threads, bounded check-ins and owner escalations. Teams share no credentials or access grants. The database upgrades to schema 39 after a backup. The team instructions change provider session keys, so Botons start fresh provider sessions with their saved chat context.
+
+- **Browser site boundaries.** Pages can use normal HTTP methods within allowed sites without per-request approval cards. Site restrictions, private-network checks and the browser kill switch remain enforced. Sensitive fields still require the owner's private takeover. Review the allowed sites before enabling a Boton's browser.
+
+- **More kinds of Boton.** Ten bodies (round, pill and keycap, plus tower, stack, arcade button, nut, cog, puff and saucer), feet to stand on (legs, a wheel, treads, a hover jet or a spring), new eyes, mouths, tops, ears, shades, panels and arms, and a dozen presets to start from in the builder. Arms hang at the sides with hands, the fin on top is a soft crest and fin ears are cooling slats, on existing Botons too; every saved look keeps what it has. Configuration exports are format version 6, which adds a look's feet; files at 5 and older still import, their Botons standing on nothing.
+
+- **Ultra black.** Settings → Appearance has an Ultra black switch beside System, Light and Dark: whenever Botons is dark (System at night included) it is on true black, with neutral near-black surfaces. Kept on each device; the usual dark stays the default.
+
+- **A new app icon.** A Boton as a keycap on electric violet, on the home screen, in the browser tab and as the native app's icon.
+
+- **Codex uses one sign-in.** Botons runs Codex in the server account's own Codex home (`CODEX_HOME`, else `~/.codex`) and never copies its sign-in, since Codex rotates the refresh token and a copy goes stale. Signing in or out there changes it for every Codex client that user runs, and Codex adds that home's global `AGENTS.md` to Codex Botons' turns; Settings → Brains and doctor say so. A sign-in kept in `BOTONS_HOME/cli/codex` is left as it is and used only while the account has none. Asking to copy the sign-in answers that there is nothing to copy. See `docs/CLI-HOMES.md`.
+
+- **Push to the native app.** With `BOTONS_APNS_KEY_FILE`, `BOTONS_APNS_KEY_ID`, `BOTONS_APNS_TEAM_ID` and `BOTONS_APNS_TOPIC` all set, the server also pushes through Apple's push service to devices that register themselves (`/api/devices/current/push`), at the moments ntfy pushes and with the same wording (**Show text in pushes** applies). With none of them set nothing changes. A partial set stops the server at start. The database upgrade adds the registrations table. **Settings → Health and backups** shows how these pushes go once the server is set up for them.
+
 - **Docs.** The README is a short welcome with a quick start; the full guide (install, first run, brains, access, routines, connectors, the browser, backups, configuration and more) lives in `docs/`, starting at `docs/README.md`. Messages from the server and the app that point to the docs name the new pages.
 
 ## 0.1.1

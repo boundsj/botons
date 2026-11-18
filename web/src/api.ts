@@ -104,15 +104,35 @@ import type {
   PortableImportInput,
   PortableImportPreview,
   PortableImportResult,
+  BrainHomes,
+  CreateTeamInput,
+  CreateTeamItemInput,
+  SetTeamMembersInput,
+  Team,
+  TeamDetail,
+  TeamItem,
+  TeamItemActionInput,
+  TeamItemActionResult,
+  TeamItemDetail,
+  TeamMessage,
+  TeamSearchHit,
+  TeamStateInput,
+  TeamThread,
+  TeamThreadDetail,
+  TeamsAttention,
+  UpdateTeamInput,
 } from '../../shared/types.ts';
 import type { CardAnswerInput } from '../../shared/cards.ts';
 import { deviceToken, setDeviceToken, setUrlKeys, urlKeys, withKey } from './device.ts';
 
 export class ApiError extends Error {
   status: number;
-  constructor(status: number, message: string) {
+  /** A refusal's machine-readable reason, when the server gives one (Teams: TeamRefusalCode). */
+  code: string | null;
+  constructor(status: number, message: string, code: string | null = null) {
     super(message);
     this.status = status;
+    this.code = code;
   }
 }
 
@@ -154,7 +174,7 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
   const text = await res.text();
   const data = text ? JSON.parse(text) : null;
   if (res.status === 401 && !path.startsWith('/api/auth/')) onUnauthorized?.();
-  if (!res.ok) throw new ApiError(res.status, data?.error ?? `Request failed (${res.status})`);
+  if (!res.ok) throw new ApiError(res.status, data?.error ?? `Request failed (${res.status})`, typeof data?.code === 'string' ? data.code : null);
   return data as T;
 }
 
@@ -234,8 +254,7 @@ export const api = {
   pauseAll: (paused: boolean) => call<Settings>('POST', paused ? '/api/pause' : '/api/resume'),
   usage: (since: string, group: 'bot' | 'routine', botId?: string) =>
     call<UsageReport>('GET', `/api/usage?since=${enc(since)}&group=${group}${botId ? `&bot=${enc(botId)}` : ''}`),
-  brainHomes: () => call<{codex: boolean; claude: boolean}>('GET', '/api/brain-homes'),
-  importCodexSignIn: () => call('POST', '/api/brain-homes/codex/import', { consent: true }),
+  brainHomes: () => call<BrainHomes>('GET', '/api/brain-homes'),
   brainConfigRepairs: () => call<CodexConfigRepair[]>('GET', '/api/brain-config-repairs'),
   repairBrainConfig: (id: string, token: string) => call<CodexConfigRepairResult>('POST', '/api/brain-config-repairs', { id, token, consent: true }),
   installBrainCli: (provider: string, command: string) => call<{installed: boolean}>('POST', `/api/brain-clis/${provider}/install`, {consent:true, command}),
@@ -402,6 +421,40 @@ export const api = {
 
   answerCard: (botId: string, id: string, input: CardAnswerInput) => call<Message>('POST', `/api/bots/${enc(botId)}/cards/${enc(id)}/answer`, input),
   card: (id: string) => call<Message>('GET', `/api/cards/${enc(id)}`),
+
+  /** Teams, as the owner sees them (paired devices only). Refusals carry the server's words and a TeamRefusalCode. */
+  teams: () => call<Team[]>('GET', '/api/teams'),
+  teamsAttention: () => call<TeamsAttention>('GET', '/api/teams/attention'),
+  createTeam: (input: CreateTeamInput) => call<Team | TeamDetail>('POST', '/api/teams', input),
+  team: (id: string) => call<TeamDetail>('GET', `/api/teams/${enc(id)}`),
+  updateTeam: (id: string, input: UpdateTeamInput) => call<Team | TeamDetail>('PATCH', `/api/teams/${enc(id)}`, input),
+  /** The whole roster at once (exactly one lead), so an edit saves in one step. */
+  setTeamMembers: (id: string, input: SetTeamMembersInput) => call<Team | TeamDetail>('PUT', `/api/teams/${enc(id)}/members`, input),
+  /** Pause, resume, archive; paused with `stop` is Stop work. */
+  setTeamState: (id: string, input: TeamStateInput) => call<Team | TeamDetail>('POST', `/api/teams/${enc(id)}/state`, input),
+  /** A finished team's completion, marked reviewed. */
+  reviewTeam: (id: string) => call<Team | TeamDetail>('POST', `/api/teams/${enc(id)}/review`),
+  /** Archived teams only. */
+  deleteTeam: (id: string) => call<{ ok: true }>('DELETE', `/api/teams/${enc(id)}`),
+  createTeamItem: (teamId: string, input: CreateTeamItemInput) => call<TeamItem | TeamItemActionResult>('POST', `/api/teams/${enc(teamId)}/items`, input),
+  teamItem: (id: string) => call<TeamItemDetail>('GET', `/api/team-items/${enc(id)}`),
+  teamItemAction: (id: string, input: TeamItemActionInput) => call<TeamItemActionResult>('POST', `/api/team-items/${enc(id)}/actions`, input),
+  /** Newest first. `team`: a team id or `direct`; `before`: the lastSeq of the oldest thread shown. */
+  teamThreads: (f: { team?: string; item?: string; before?: number; limit?: number } = {}) => {
+    const p = new URLSearchParams({ limit: String(f.limit ?? 50) });
+    if (f.team) p.set('team', f.team);
+    if (f.item) p.set('item', f.item);
+    if (f.before) p.set('before', String(f.before));
+    return call<TeamThread[]>('GET', `/api/team-threads?${p}`);
+  },
+  teamThread: (id: string) => call<TeamThreadDetail>('GET', `/api/team-threads/${enc(id)}`),
+  /** By seq: the newest `limit`, or the `limit` before a seq. */
+  teamThreadMessages: (id: string, before?: number, limit = 200) =>
+    call<TeamMessage[]>('GET', `/api/team-threads/${enc(id)}/messages?limit=${limit}${before ? `&before=${before}` : ''}`),
+  /** The owner's read marker only moves forward. */
+  markThreadRead: (id: string, upTo: number) => call<unknown>('POST', `/api/team-threads/${enc(id)}/read`, { upTo }),
+  /** Every team and Direct, or one team (`direct` for Direct only). */
+  searchTeams: (q: string, team?: string, limit = 50) => call<TeamSearchHit[]>('GET', `/api/teams/search?q=${enc(q)}&limit=${limit}${team ? `&team=${enc(team)}` : ''}`),
 
   memories: (botId: string) => call<Memory[]>('GET', `/api/bots/${enc(botId)}/memories`),
   addMemory: (botId: string, text: string) => call<Memory>('POST', `/api/bots/${enc(botId)}/memories`, { text }),

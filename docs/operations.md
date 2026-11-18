@@ -60,6 +60,12 @@ npm run deploy -- --list                          # releases, newest first; * cu
 
 A deploy copies the commit (`git archive`) to `~/.local/share/botons/releases/<sha>`, runs `npm ci`, typecheck, `npm run test:full` (`--skip-tests` skips it) and the build there, points `current` at it, restarts the unit and waits for `/api/health` to report the new commit. If the server does not come up, it goes back to the previous release and exits non-zero. It keeps the newest 5 releases (`--keep <n>`) plus current and previous. Other flags: `--root <dir>`, `--unit <name>`, `--port <n>`, `--env-path <file>`, `--repo <checkout>`, `--no-restart`.
 
+### Teams and sessions
+
+A Boton's provider session is keyed by its system prompt, which teaches every Boton how teams work. A release that changes that text starts each Boton's next turn in a new session, once: memories, routines and workspace files stay, and the new session is given the recent chat. Editing a team never does this; what changes per team is in each turn's context block.
+
+The team supervisor runs inside the server (`BOTONS_TEAM_SUPERVISOR_MS`, default 30 seconds) and calls no model. Its clocks, counts and budgets are all in the database, so a restart loses none: queued requests are dispatched, ones lost at the restart are answered as could-not-answer, and in-flight turns re-run with the usual note. What a busy team can cost is bounded: per team 60 messages an hour and 300 a day (the owner can set 20 to 1,000), assignments and retries counted with asks, 60 items its Botons add a day, at most 10 requests waiting for any one Boton, 6 lead check-ins an hour and 40 a day, 5 escalations a day; past a daily budget the team pauses with one notice. Per item, at most 3 check-ins before it goes to you, and 12 attempts, 24 check-ins and 3 escalations in its life; past one the item is held for you.
+
 ## Docker
 
 ```sh

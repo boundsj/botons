@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readdirSync, readFileSync, symlinkSync, writeFileSync, lstatSync, truncateSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, symlinkSync, writeFileSync, lstatSync, truncateSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { test } from 'node:test';
 import { type Finding, diagnose, egressFinding, isProblem } from '../../scripts/doctor.ts';
 import { backup } from '../src/backup.ts';
 import { SCHEMA_VERSION } from '../src/schema.ts';
+import { throwawayKey } from './fixtures/fake-apns.ts';
 import { noRealClis, startServer, tempDir } from './helpers.ts';
 
 const repo = resolve(import.meta.dirname, '../..');
@@ -28,6 +29,31 @@ test('a bad setting fails the doctor with the server’s own message, and nothin
   assert.ok(config.every((f) => f.status === 'fail'));
   assert.match(config[0].message, /BOTONS_PORT must be a whole number/);
   assert.equal(existsSync(home), false);
+});
+
+test('push to the app: nothing is said when it is not set up, a partial set fails, and a full one names the settings and never the key', async () => {
+  const run = (home: string, extra: Record<string, string>) => diagnose({ egress: async () => ({ v4: true, v6: true }), env: envFor(home, extra), container: false, health: async () => null });
+  const none = await run(join(tempDir(), 'none'), {});
+  assert.deepEqual(statuses(none, 'apns'), []);
+
+  const keyFile = join(tempDir(), 'AuthKey_TESTKEY123.p8');
+  throwawayKey(keyFile);
+  const settings = { BOTONS_APNS_KEY_FILE: keyFile, BOTONS_APNS_KEY_ID: 'TESTKEY123', BOTONS_APNS_TEAM_ID: 'TEAM123456', BOTONS_APNS_TOPIC: 'com.example.botons' };
+  const partial = await run(join(tempDir(), 'partial'), { BOTONS_APNS_KEY_FILE: keyFile });
+  assert.deepEqual(statuses(partial, 'config'), ['fail']);
+  assert.match(of(partial, 'config')[0].message, /^BOTONS_APNS_KEY_ID, BOTONS_APNS_TEAM_ID, BOTONS_APNS_TOPIC are not set/);
+
+  const set = await run(join(tempDir(), 'set'), settings);
+  assert.deepEqual(statuses(set, 'config'), ['ok']);
+  assert.deepEqual(statuses(set, 'apns'), ['info']);
+  const line = of(set, 'apns')[0].message;
+  for (const name of ['BOTONS_APNS_TOPIC com.example.botons', 'BOTONS_APNS_KEY_ID TESTKEY123', 'BOTONS_APNS_TEAM_ID TEAM123456', `BOTONS_APNS_KEY_FILE ${keyFile}`]) assert.ok(line.includes(name), name);
+  assert.equal(JSON.stringify(set).includes('PRIVATE KEY'), false, 'the key is never printed');
+
+  chmodSync(keyFile, 0o644);
+  const open = await run(join(tempDir(), 'open'), settings);
+  assert.deepEqual(statuses(open, 'apns'), ['info', 'warn']);
+  assert.equal(of(open, 'apns')[1].fix, `chmod 600 ${keyFile}`);
 });
 
 test('a fresh install: no database yet, nothing running, no CLI that can run turns', async () => {
@@ -342,11 +368,12 @@ test('doctor detects symlinked Codex instructions and skills without reading or 
   writeFileSync(target, 'private fixture content must not appear');
   symlinkSync(target, join(config, 'AGENTS.md'));
   symlinkSync(join(home, 'missing-skills'), join(config, 'skills'));
+  // Codex runs in the account's home whether or not it is signed in yet.
   const findings = await diagnose({ egress: async () => ({ v4: true, v6: true }), env: envFor(home, { CODEX_HOME: config }), container: false, skipClis: true, health: async () => null });
-  assert.equal(of(findings, 'Codex config').length, 0);
-  writeFileSync(join(config, 'auth.json'), '{}');
-  const [finding] = of(await diagnose({ egress: async () => ({ v4: true, v6: true }), env: envFor(home, { CODEX_HOME: config }), container: false, skipClis: true, health: async () => null }), 'Codex config');
+  const [finding, instructions] = of(findings, 'Codex config');
   assert.equal(finding.status, 'warn');
+  assert.equal(instructions.status, 'info');
+  assert.match(instructions.message, /Codex adds AGENTS\.md from .* to every Codex Boton turn/);
   assert.match(finding.message, /CODEX_HOME\/AGENTS.md.*CODEX_HOME\/skills.*Can't mount on symlink destination/);
   assert.match(finding.fix!, /owner can replace.*reviewed copies/);
   assert.ok(!JSON.stringify(findings).includes('private fixture content'));

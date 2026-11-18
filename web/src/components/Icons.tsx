@@ -42,3 +42,4 @@ export const ShieldIcon = (p: P) => (<Svg {...p}><path d="M12 3 5 6v5.5c0 4.3 2.
 export const ChevronIcon = (p: P) => (<Svg {...p}><path d="m6 9 6 6 6-6" /></Svg>);
 export const SmileIcon = (p: P) => (<Svg {...p}><circle cx="12" cy="12" r="9" /><path d="M8.5 14.5a4.5 4.5 0 0 0 7 0" /><path d="M9 9.5h.01M15 9.5h.01" /></Svg>);
 export const MoreIcon = (p: P) => (<Svg {...p}><circle cx="5" cy="12" r="1.4" fill="currentColor" stroke="none" /><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none" /><circle cx="19" cy="12" r="1.4" fill="currentColor" stroke="none" /></Svg>);
+export const PeopleIcon = (p: P) => (<Svg {...p}><circle cx="9" cy="8.5" r="3.2" /><path d="M3.2 19.5a5.8 5.8 0 0 1 11.6 0" /><path d="M15.5 5.6a3 3 0 0 1 0 5.8M17.6 14.3a5.6 5.6 0 0 1 3.2 5.2" /></Svg>);

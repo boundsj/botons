@@ -26,25 +26,33 @@ function withDb<T>(path: string, fn: (db: DatabaseSync) => T): T {
   }
 }
 
+/** The Teams tables (39), empty after the upgrade that adds them. */
+const TEAM_TABLES = ['teams', 'team_members', 'team_items', 'team_events', 'team_threads', 'team_messages', 'team_deliveries'];
 /** Tables a later upgrade adds, empty after it: left out when comparing an upgrade's tables with the ones before. */
-const ADDED_LATER = ['skill_history', 'message_reactions', 'reaction_followups', 'api_requests'];
+/** Google and Gmail's tables (36): a later upgrade's, empty, left out when comparing what an earlier one made. */
+const GOOGLE_36 = (t: string) => /^(google_|gmail_)/.test(t);
+const ADDED_LATER = ['skill_history', 'message_reactions', 'reaction_followups', 'api_requests', 'google_client', 'google_accounts', 'google_lifecycle', 'google_flows', 'gmail_grants', 'gmail_ops', 'gmail_op_files', 'gmail_cursors'];
 
 const tablesOf = (d: { schema: unknown[] }) => d.schema.filter((x) => (x as { type: string }).type === 'table').map((x) => (x as { name: string }).name);
+/** The table 36 to 37 adds, with its index: set aside in a dump, like the columns below, so the upgrades before it compare as they did. Its own test reads it. */
+const SET_ASIDE = 'push_devices';
 /** A dump's rows of these tables, in this order. */
 const rowsOf = (d: { schema: unknown[]; rows: unknown[][] }, names: string[]) => names.map((n) => d.rows[tablesOf(d).indexOf(n)]);
 
 /**
  * The schema version, the schema and every row, with each Boton's previous and tater looks and each routine's
  * webhook_history set aside: 31 to 32, 32 to 33 and 33 to 34 fill them in on every upgrade from before, and their own
- * tests read them.
+ * tests read them. The push_devices table is set aside as well (see SET_ASIDE), and the Teams tables unless `teams` (their
+ * own test reads them).
  */
-const dump = (path: string) =>
+const dump = (path: string, opts: { teams?: boolean } = {}) =>
   withDb(path, (db) => ({
     version: db.prepare('pragma user_version').get()!.user_version,
-    schema: db.prepare('select type, name, sql from sqlite_master order by name').all(),
+    schema: db.prepare('select type, name, sql, tbl_name from sqlite_master where tbl_name <> ? order by name').all(SET_ASIDE).filter((x) => opts.teams || !TEAM_TABLES.includes(String(x.tbl_name))).map(({ tbl_name, ...x }) => x),
     rows: db
-      .prepare("select name from sqlite_master where type = 'table' order by name")
-      .all()
+      .prepare("select name from sqlite_master where type = 'table' and name <> ? order by name")
+      .all(SET_ASIDE)
+      .filter(({ name }) => opts.teams || !TEAM_TABLES.includes(String(name)))
       .map(({ name }) =>
         db
           .prepare(`select * from "${name}" order by rowid`)
@@ -156,12 +164,14 @@ test('a database at any other version is refused and left as it was', () => {
     ['create table message_reactions (x integer); pragma user_version = 29', /is at schema version 29, but upgrading it to \d+ failed \(table message_reactions already exists\), so it was left as it was/],
     ['create table bots (id text primary key, previous_look text); pragma user_version = 31', /is at schema version 31, but upgrading it to \d+ failed \(duplicate column name: previous_look\), so it was left as it was/],
     ['create table bots (id text primary key, tater_look text); pragma user_version = 32', /is at schema version 32, but upgrading it to \d+ failed \(duplicate column name: tater_look\), so it was left as it was/],
+    ['create table push_devices (x integer); pragma user_version = 36', /is at schema version 36, but upgrading it to \d+ failed \(table push_devices already exists\), so it was left as it was/],
+    ['create table google_client (x integer); pragma user_version = 35', /is at schema version 35, but upgrading it to \d+ failed \(table google_client already exists\), so it was left as it was/],
     [`create table bots (id text primary key); pragma user_version = ${higher}`, new RegExp(`is at schema version ${higher}, but this version of Botons only knows versions up to ${SCHEMA_VERSION}\\.`)],
   ];
   if (lower > 0) {
     cases.push([
       `create table bots (id text primary key); pragma user_version = ${lower}`,
-      new RegExp(`is at schema version ${lower}, but this version of Botons only opens schema version ${SCHEMA_VERSION} \\(or 20 or 21 or 22 or 23 or 24 or 25 or 26 or 27 or 28 or 29 or 30 or 31 or 32 or 33 or 34, which it upgrades\\) or an empty database\\.`),
+      new RegExp(`is at schema version ${lower}, but this version of Botons only opens schema version ${SCHEMA_VERSION} \\(or 20 or 21 or 22 or 23 or 24 or 25 or 26 or 27 or 28 or 29 or 30 or 31 or 32 or 33 or 34 or 35 or 36 or 37 or 38, which it upgrades\\) or an empty database\\.`),
     ]);
   }
   for (const [sql, message] of cases) {
@@ -732,7 +742,7 @@ test('28 upgrades to 29 in place, after a backup: every message, pin, routine me
   // Every row exactly as it was; only the indexes are new (and, from 30 on, the reactions' empty tables; from 31, the API requests' table).
   assert.deepEqual(rowsOf({ ...after, rows: looksAside(after, true) }, tablesOf(before)), looksAside(before));
   const indexes = (d: ReturnType<typeof dump>) => d.schema.filter((x) => (x as { type: string }).type === 'index').map((x) => (x as { name: string }).name);
-  assert.deepEqual(indexes(after).filter((n) => !indexes(before).includes(n) && !/reaction|api_requests/.test(n)).sort(), ['messages_chat', 'messages_pinned', 'messages_reset', 'messages_routine']);
+  assert.deepEqual(indexes(after).filter((n) => !indexes(before).includes(n) && !/reaction|api_requests|gmail|google/.test(n)).sort(), ['messages_chat', 'messages_pinned', 'messages_reset', 'messages_routine']);
   const fresh = tmpHome();
   open(fresh).db.close();
   assert.deepEqual(after.schema, dump(fresh.dbPath).schema);
@@ -780,7 +790,7 @@ test('29 upgrades to 30 in place, after a backup: the reactions start empty and 
   const after = dump(cfg.dbPath);
   // Every row exactly as it was; the reactions' tables are new and empty.
   assert.deepEqual(rowsOf({ ...after, rows: looksAside(after, true) }, tablesOf(before)), looksAside(before));
-  assert.deepEqual(tablesOf(after).filter((t) => !tablesOf(before).includes(t)).sort(), ['api_requests', 'message_reactions', 'reaction_followups']);
+  assert.deepEqual(tablesOf(after).filter((t) => !tablesOf(before).includes(t) && !GOOGLE_36(t)).sort(), ['api_requests', 'message_reactions', 'reaction_followups']);
   assert.deepEqual(rowsOf(after, ['api_requests', 'message_reactions', 'reaction_followups']), [[], [], []]);
   const fresh = tmpHome();
   open(fresh).db.close();
@@ -826,7 +836,7 @@ test('30 upgrades to 31 in place, after a backup: API-key turns already recorded
 
   const after = dump(cfg.dbPath);
   assert.deepEqual(rowsOf({ ...after, rows: looksAside(after, true) }, tablesOf(before)), looksAside(before));
-  assert.deepEqual(tablesOf(after).filter((t) => !tablesOf(before).includes(t)), ['api_requests']);
+  assert.deepEqual(tablesOf(after).filter((t) => !tablesOf(before).includes(t) && !GOOGLE_36(t)), ['api_requests']);
   const fresh = tmpHome();
   open(fresh).db.close();
   assert.deepEqual(after.schema, dump(fresh.dbPath).schema);
@@ -875,7 +885,7 @@ test('31 upgrades to 32 and on in place, after a backup: every Critter becomes i
   assert.deepEqual(taters[3], taterLookFor(null, 'bot_dave'));
   // And at 33, each is the Boton closest to it.
   for (const [i, b] of bots.entries()) assert.deepEqual(b.look, lookFromTater(taters[i]), b.id);
-  assert.deepEqual(bots[0].look, { shape: 'key', shell: 'violet', glow: 'violet', eyes: 'happy', brows: 'none', mouth: 'grin', top: 'beacon', ears: 'none', visor: 'none', panel: 'grill', arms: 'nubs', backdrop: 'mint', cheeks: true });
+  assert.deepEqual(bots[0].look, { shape: 'key', shell: 'violet', glow: 'violet', eyes: 'happy', brows: 'none', mouth: 'grin', top: 'beacon', ears: 'none', visor: 'none', panel: 'grill', arms: 'nubs', feet: 'none', backdrop: 'mint', cheeks: true });
 
   // The look each had stays beside it, byte for byte: undoing is `update bots set look = previous_look`.
   withDb(cfg.dbPath, (db) => {
@@ -884,7 +894,7 @@ test('31 upgrades to 32 and on in place, after a backup: every Critter becomes i
 
   // Every other column and row stays as it was.
   const after = dump(cfg.dbPath);
-  assert.deepEqual(tablesOf(after), tablesOf(before));
+  assert.deepEqual(tablesOf(after).filter((t) => !GOOGLE_36(t)), tablesOf(before));
   for (const [i, name] of tablesOf(before).entries()) {
     const strip = (rows: unknown) => (name === 'bots' ? (rows as Record<string, unknown>[]).map(({ look, ...r }) => r) : rows);
     assert.deepEqual(strip(after.rows[tablesOf(after).indexOf(name)]), strip(before.rows[i]), name);
@@ -933,10 +943,11 @@ test('32 upgrades to 33 in place, after a backup: every tater look becomes its c
   });
 
   for (const b of bots) assert.deepEqual(parseLook(b.look), b.look, b.id);
-  assert.deepEqual(bots[0].look, { shape: 'round', shell: 'sun', glow: 'pink', eyes: 'dots', brows: 'none', mouth: 'smile', top: 'none', ears: 'none', visor: 'none', panel: 'none', arms: 'nubs', backdrop: 'mist', cheeks: true });
-  assert.deepEqual(bots[1].look, { shape: 'key', shell: 'violet', glow: 'cyan', eyes: 'rings', brows: 'none', mouth: 'wave', top: 'none', ears: 'pods', visor: 'goggles', panel: 'grill', arms: 'nubs', backdrop: 'plum', cheeks: true });
+  assert.deepEqual(bots[0].look, { shape: 'round', shell: 'sun', glow: 'pink', eyes: 'dots', brows: 'none', mouth: 'smile', top: 'none', ears: 'none', visor: 'none', panel: 'none', arms: 'nubs', feet: 'none', backdrop: 'mist', cheeks: true });
+  assert.deepEqual(bots[1].look, { shape: 'key', shell: 'violet', glow: 'cyan', eyes: 'rings', brows: 'none', mouth: 'wave', top: 'none', ears: 'pods', visor: 'goggles', panel: 'grill', arms: 'nubs', feet: 'none', backdrop: 'plum', cheeks: true });
   assert.deepEqual([bots[2].look.shape, bots[2].look.shell, bots[2].look.top, bots[2].look.visor, bots[2].look.panel, bots[2].look.glow, bots[2].look.backdrop, bots[2].look.arms, bots[2].look.cheeks], ['pill', 'graphite', 'twin', 'band', 'leds', 'ice', 'night', 'cheer', false]);
-  assert.deepEqual(bots[3].look, already);
+  // A Boton look stays as it is; one without feet stands on nothing.
+  assert.deepEqual(bots[3].look, { ...already, feet: 'none' });
   // Unreadable: a Boton seeded by its id, the same on every machine.
   assert.deepEqual(bots[4].look, lookFor(null, 'bot_jerry'));
 
@@ -951,7 +962,7 @@ test('32 upgrades to 33 in place, after a backup: every tater look becomes its c
 
   // Every other column and row stays as it was.
   const after = dump(cfg.dbPath);
-  assert.deepEqual(tablesOf(after), tablesOf(before));
+  assert.deepEqual(tablesOf(after).filter((t) => !GOOGLE_36(t)), tablesOf(before));
   for (const [i, name] of tablesOf(before).entries()) {
     const strip = (rows: unknown) => (name === 'bots' ? (rows as Record<string, unknown>[]).map(({ look, ...r }) => r) : rows);
     assert.deepEqual(strip(after.rows[tablesOf(after).indexOf(name)]), strip(before.rows[i]), name);
@@ -985,7 +996,7 @@ test("33 upgrades to 34 in place, after a backup: every routine's webhook runs s
   assert.equal(backups.length, 1);
   withDb(join(cfg.home, 'backups', backups[0], 'botons.db'), (db) => assert.equal(db.prepare('pragma user_version').get()!.user_version, 33));
   const after = dump(cfg.dbPath);
-  assert.deepEqual(after.rows, before.rows);
+  assert.deepEqual(rowsOf(after, tablesOf(before)), before.rows);
   const fresh = tmpHome();
   open(fresh).db.close();
   assert.deepEqual(after.schema, dump(fresh.dbPath).schema);
@@ -1053,6 +1064,47 @@ test("34 upgrades to 35 in place, after a backup: the names stored under the app
   const after = dump(cfg.dbPath);
   for (const [i, name] of tablesOf(before).entries()) {
     if (['audit_events', 'message_reactions', 'auth_tokens', 'bots', 'connector_policies', 'connector_notices', 'mcp_servers', 'settings', 'skills', 'sqlite_sequence'].includes(name)) continue;
+    assert.deepEqual(after.rows[tablesOf(after).indexOf(name)], before.rows[i], name);
+  }
+  const fresh = tmpHome();
+  open(fresh).db.close();
+  assert.deepEqual(after.schema, dump(fresh.dbPath).schema);
+  assert.equal(after.version, SCHEMA_VERSION);
+});
+
+test("35 upgrades to 36 in place, after a backup: the Google and Gmail tables arrive empty and work, an owner's connector named botons_gmail moves aside with its grants, every other row stays, and the schema a new database gets", () => {
+  const cfg = tmpHome();
+  const now = '2026-11-09T09:00:00.000Z';
+  withDb(cfg.dbPath, (db) => {
+    db.exec(`${readFileSync(join(import.meta.dirname, 'fixtures/schema-35.sql'), 'utf8')}\npragma user_version = 35;`);
+    db.prepare("insert into settings (key, value) values ('ownerName', 'Sam')").run();
+    db.prepare(
+      "insert into bots (id, name, look, provider, access, timezone, workspace, connections, session_id, session_key, created_at, updated_at, last_activity_at) values ('bot_kevin', 'Kevin', ?, 'mock', 'host', 'UTC', 'kevin', ?, 'sess-1', 'key-1', ?, ?, ?)",
+    ).run(JSON.stringify(randomLook()), JSON.stringify(['lib:botons_browser', 'lib:botons_gmail', 'lib:github']), now, now, now);
+    db.prepare("insert into messages (id, bot_id, role, text, created_at) values ('msg_1', 'bot_kevin', 'user', 'hi', ?)").run(now);
+    db.prepare("insert into approvals (id, bot_id, kind, title, status, trigger, created_at, connector_id) values ('apr_1', 'bot_kevin', 'connector', 'Give Kevin it', 'pending', 'chat', ?, 'lib:botons_gmail')").run(now);
+    db.prepare("insert into mcp_servers (name, transport, url, created_at, updated_at) values ('botons_gmail', 'http', 'https://mcp.example.com/mail', ?, ?)").run(now, now);
+    db.prepare("insert into connector_policies (connector_id, on_request, updated_at) values ('lib:botons_gmail', 1, ?)").run(now);
+  });
+  const before = dump(cfg.dbPath);
+  const store = open(cfg);
+  store.db.close();
+  const backups = readdirSync(join(cfg.home, 'backups'));
+  assert.equal(backups.length, 1);
+  withDb(join(cfg.home, 'backups', backups[0], 'botons.db'), (db) => assert.equal(db.prepare('pragma user_version').get()!.user_version, 35));
+  withDb(cfg.dbPath, (db) => {
+    assert.deepEqual(JSON.parse(String(db.prepare("select connections from bots where id = 'bot_kevin'").get()!.connections)), ['lib:botons_browser', 'lib:botons_gmail_2', 'lib:github']);
+    assert.deepEqual(db.prepare('select name from mcp_servers').all().map((r) => r.name), ['botons_gmail_2']);
+    assert.equal(db.prepare("select connector_id from approvals where id = 'apr_1'").get()!.connector_id, 'lib:botons_gmail_2');
+    assert.equal(db.prepare('select connector_id from connector_policies').get()!.connector_id, 'lib:botons_gmail_2');
+    for (const t of ['google_client', 'google_accounts', 'google_lifecycle', 'google_flows', 'gmail_grants', 'gmail_ops', 'gmail_op_files', 'gmail_cursors']) assert.equal(db.prepare(`select count(*) as n from ${t}`).get()!.n, 0, t);
+    // They work: an account and a grant on the Boton kept.
+    db.prepare("insert into google_accounts (id, sub, email, status, generation, client_generation, created_at, updated_at) values ('gacc_1', '1001', 'sam@example.com', 'connected', 1, 1, ?, ?)").run(now, now);
+    db.prepare("insert into gmail_grants (bot_id, account_id, can_read, revision, updated_at) values ('bot_kevin', 'gacc_1', 1, 'grv_1', ?)").run(now);
+  });
+  const after = dump(cfg.dbPath);
+  for (const [i, name] of tablesOf(before).entries()) {
+    if (['bots', 'mcp_servers', 'approvals', 'connector_policies'].includes(name)) continue;
     assert.deepEqual(after.rows[tablesOf(after).indexOf(name)], before.rows[i], name);
   }
   const fresh = tmpHome();
@@ -1206,4 +1258,134 @@ test('corrupt inherited legacy look names fall back by field and stay valid afte
   store = open(cfg);
   assert.deepEqual(values.map((_, i) => store.getBot(`bot_corrupt_${i}`).look), saved);
   store.db.close();
+});
+
+test('36 upgrades to 37 in place, after a backup: devices can register for push to the native app, every row stays, a registration goes with its device, and the schema a new database gets', () => {
+  const cfg = tmpHome();
+  const now = '2026-11-08T09:00:00.000Z';
+  withDb(cfg.dbPath, (db) => {
+    db.exec(`${readFileSync(join(import.meta.dirname, 'fixtures/schema-36.sql'), 'utf8')}\npragma user_version = 36;`);
+    db.prepare("insert into settings (key, value) values ('ownerName', 'Sam')").run();
+    db.prepare(
+      "insert into bots (id, name, look, provider, access, timezone, workspace, session_id, session_key, created_at, updated_at, last_activity_at) values ('bot_kevin', 'Kevin', ?, 'mock', 'host', 'UTC', 'kevin', 'sess-1', 'key-1', ?, ?, ?)",
+    ).run(JSON.stringify(randomLook()), now, now, now);
+    db.prepare("insert into messages (id, bot_id, role, text, created_at) values ('msg_1', 'bot_kevin', 'user', 'hi', ?)").run(now);
+    db.prepare("insert into google_client (id, client_id, client_secret, generation, created_at, updated_at) values (1, 'test-client', 'fake-secret', 1, ?, ?)").run(now, now);
+    db.prepare("insert into google_accounts (id, sub, email, status, generation, client_generation, refresh_token, created_at, updated_at) values ('gacc_1', '1001', 'sam@example.com', 'connected', 1, 1, 'fake-refresh', ?, ?)").run(now, now);
+    db.prepare("insert into gmail_grants (bot_id, account_id, can_read, revision, updated_at) values ('bot_kevin', 'gacc_1', 1, 'grv_1', ?)").run(now);
+    db.prepare("insert into gmail_cursors (bot_id, account_id, name, history_id, created_at, updated_at) values ('bot_kevin', 'gacc_1', 'inbox', '123', ?, ?)").run(now, now);
+    const token = db.prepare('insert into auth_tokens (id, hash, kind, bot_id, label, created_at) values (?, ?, ?, ?, ?, ?)');
+    token.run('dev_phone', 'hash-phone', 'device', null, 'Phone', now);
+    token.run('dev_laptop', 'hash-laptop', 'device', null, 'Laptop', now);
+    token.run('tok_turn', 'hash-turn', 'boton', 'bot_kevin', 'turn', now);
+  });
+  const before = dump(cfg.dbPath);
+  const store = open(cfg);
+  store.db.close();
+  const backups = readdirSync(join(cfg.home, 'backups'));
+  assert.equal(backups.length, 1);
+  withDb(join(cfg.home, 'backups', backups[0], 'botons.db'), (db) => assert.equal(db.prepare('pragma user_version').get()!.user_version, 36));
+  withDb(cfg.dbPath, (db) => {
+    db.exec('pragma foreign_keys = on');
+    assert.equal(db.prepare('select count(*) as n from push_devices').get()!.n, 0, 'nothing is registered until the app does');
+    const register = db.prepare("insert into push_devices (device_id, token, environment, updated_at) values (?, ?, ?, ?)");
+    register.run('dev_phone', 'ab'.repeat(32), 'production', now);
+    register.run('dev_laptop', 'cd'.repeat(32), 'development', now);
+    assert.throws(() => register.run('dev_phone', 'ef'.repeat(32), 'production', now), 'one registration a device');
+    assert.throws(() => register.run('dev_nobody', 'ef'.repeat(32), 'production', now), 'only a device that exists');
+    db.prepare("delete from auth_tokens where id = 'dev_phone'").run();
+    assert.deepEqual(db.prepare('select device_id from push_devices').all().map((r) => r.device_id), ['dev_laptop'], 'revoking a device removes its registration');
+    db.prepare("delete from push_devices").run();
+  });
+  // Every other row as it was.
+  const after = dump(cfg.dbPath);
+  for (const [i, name] of tablesOf(before).entries()) {
+    if (name === 'auth_tokens') continue;
+    if (name === 'gmail_grants') {
+      assert.deepEqual(after.rows[tablesOf(after).indexOf(name)], [], 'mail grants are disabled');
+      continue;
+    }
+    assert.deepEqual(after.rows[tablesOf(after).indexOf(name)], before.rows[i], name);
+  }
+  const fresh = tmpHome();
+  open(fresh).db.close();
+  assert.deepEqual(after.schema, dump(fresh.dbPath).schema);
+  const pushSchema = (path: string) => withDb(path, (db) => db.prepare('select type, name, sql from sqlite_master where tbl_name = ? order by name').all(SET_ASIDE));
+  assert.deepEqual(pushSchema(cfg.dbPath), pushSchema(fresh.dbPath), 'the table is what a new database gets');
+  assert.equal(pushSchema(cfg.dbPath).length, 3, 'the table and the indexes its device and its unique token make');
+  assert.equal(after.version, SCHEMA_VERSION);
+});
+
+
+test('mail cleanup cancels held approvals, preserves uncertain delivery and retains account data', () => {
+  const cfg = tmpHome();
+  const now = '2026-11-10T00:00:00.000Z';
+  withDb(cfg.dbPath, (db) => {
+    db.exec(`${readFileSync(join(import.meta.dirname, 'fixtures/schema-37.sql'), 'utf8')}\npragma user_version = 37;`);
+    db.prepare("insert into bots (id, name, look, provider, timezone, workspace, connections, created_at, updated_at, last_activity_at) values ('bot_test', 'Kevin', '{}', 'mock', 'UTC', 'kevin', ?, ?, ?, ?)").run(JSON.stringify(['lib:botons_gmail', 'lib:github']), now, now, now);
+    db.prepare("insert into google_accounts (id, sub, email, status, generation, client_generation, refresh_token, created_at, updated_at) values ('gacc_1', '1001', 'sam@example.com', 'connected', 1, 1, 'fake-refresh', ?, ?)").run(now, now);
+    db.prepare("insert into gmail_grants (bot_id, account_id, can_read, can_send, revision, updated_at) values ('bot_test', 'gacc_1', 1, 1, 'rev', ?)").run(now);
+    for (const state of ['pending', 'approved', 'sending', 'sent', 'unknown']) {
+      db.prepare("insert into approvals (id, bot_id, kind, title, status, trigger, created_at) values (?, 'bot_test', 'action', 'Mail', 'pending', 'chat', ?)").run(state, now);
+      db.prepare("insert into gmail_ops (id, bot_id, account_id, approval_id, op, payload, payload_sha256, raw, raw_sha256, account_generation, grant_revision, state, created_at, updated_at) values (?, 'bot_test', 'gacc_1', ?, 'send', '{}', 'hash', 'raw', 'hash', 1, 'rev', ?, ?, ?)").run(state, state, state, now, now);
+    }
+  });
+  const store = open(cfg);
+  const db = store.db;
+  assert.equal(db.prepare("select count(*) as n from approvals where status = 'pending'").get()!.n, 0);
+  assert.deepEqual(db.prepare('select id, state from gmail_ops order by id').all().map((r) => [r.id, r.state]), [['approved', 'withdrawn'], ['pending', 'withdrawn'], ['sending', 'unknown'], ['sent', 'sent'], ['unknown', 'unknown']]);
+  assert.equal(db.prepare('select count(*) as n from gmail_grants').get()!.n, 0);
+  assert.equal(db.prepare('select connections from bots').get()!.connections, '["lib:github"]');
+  assert.equal(db.prepare('select refresh_token from google_accounts').get()!.refresh_token, 'fake-refresh');
+  assert.equal(db.prepare('pragma user_version').get()!.user_version, SCHEMA_VERSION);
+  db.close();
+  const after = dump(cfg.dbPath);
+  open(cfg).db.close();
+  assert.deepEqual(dump(cfg.dbPath), after, 'reopening is inert');
+});
+
+test('38 upgrades to 39 in place, after a backup: the Teams tables, empty, every row stays, asks in chats are left as they were, and the schema a new database gets', () => {
+  const cfg = tmpHome();
+  const now = '2026-11-16T09:00:00.000Z';
+  withDb(cfg.dbPath, (db) => {
+    db.exec(`${readFileSync(join(import.meta.dirname, 'fixtures/schema-38.sql'), 'utf8')}\npragma user_version = 38;`);
+    db.prepare("insert into settings (key, value) values ('ownerName', 'Sam')").run();
+    const bot = db.prepare("insert into bots (id, name, look, provider, timezone, workspace, created_at, updated_at, last_activity_at) values (?, ?, ?, 'mock', 'UTC', ?, ?, ?, ?)");
+    bot.run('bot_kevin', 'Kevin', JSON.stringify(randomLook()), 'kevin', now, now, now);
+    bot.run('bot_stuart', 'Stuart', JSON.stringify(randomLook()), 'stuart', now, now, now);
+    // A pending ask from before the upgrade: no thread rows are made for it.
+    db.prepare("insert into messages (id, bot_id, role, text, meta, pending, created_at) values ('msg_ask', 'bot_stuart', 'user', 'Can you check the importer?', ?, 1, ?)").run(
+      JSON.stringify({ kind: 'ask', fromBotId: 'bot_kevin', fromBotName: 'Kevin', threadId: 'thr_old', hop: 1 }),
+      now,
+    );
+  });
+  const before = dump(cfg.dbPath, { teams: true });
+  open(cfg).db.close();
+  const backups = readdirSync(join(cfg.home, 'backups'));
+  assert.equal(backups.length, 1);
+  withDb(join(cfg.home, 'backups', backups[0], 'botons.db'), (db) => assert.equal(db.prepare('pragma user_version').get()!.user_version, 38));
+  const after = dump(cfg.dbPath, { teams: true });
+  assert.equal(after.version, SCHEMA_VERSION);
+  assert.deepEqual(tablesOf(after).filter((t) => !TEAM_TABLES.includes(t)), tablesOf(before));
+  for (const [i, name] of tablesOf(before).entries()) assert.deepEqual(after.rows[tablesOf(after).indexOf(name)], before.rows[i], name);
+  for (const name of TEAM_TABLES) assert.deepEqual(after.rows[tablesOf(after).indexOf(name)], [], `${name} starts empty`);
+  const fresh = tmpHome();
+  open(fresh).db.close();
+  assert.deepEqual(after.schema, dump(fresh.dbPath, { teams: true }).schema);
+  withDb(cfg.dbPath, (db) => {
+    db.exec('pragma foreign_keys = on');
+    db.prepare("insert into teams (id, name, name_key, created_at, updated_at) values ('team_a', 'Atlas', 'atlas', ?, ?)").run(now, now);
+    const seat = db.prepare("insert into team_members (team_id, bot_id, role, joined_at) values ('team_a', ?, ?, ?)");
+    seat.run('bot_kevin', 'lead', now);
+    assert.throws(() => seat.run('bot_stuart', 'lead', now), 'one lead a team');
+    seat.run('bot_stuart', 'member', now);
+    assert.throws(() => db.prepare("insert into teams (id, name, name_key, created_at, updated_at) values ('team_b', 'ATLAS', 'atlas', ?, ?)").run(now, now), 'names are unique while not archived');
+    db.prepare("delete from bots where id = 'bot_stuart'").run();
+    assert.deepEqual(db.prepare('select bot_id from team_members').all().map((r) => r.bot_id), ['bot_kevin'], 'a seat goes with its Boton');
+    db.prepare("delete from teams where id = 'team_a'").run();
+    assert.equal(db.prepare('select count(*) as n from team_members').get()!.n, 0, 'seats go with their team');
+  });
+  open(cfg).db.close();
+  const reopened = dump(cfg.dbPath);
+  assert.equal(reopened.version, SCHEMA_VERSION, 'reopening is inert');
 });

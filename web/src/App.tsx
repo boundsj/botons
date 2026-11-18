@@ -4,12 +4,13 @@ import { BotonAvatar } from './components/Avatar.tsx';
 import { BrandMark } from './components/Brand.tsx';
 import { Chat, type PanelTab } from './components/Chat.tsx';
 import { PlusIcon } from './components/Icons.tsx';
-import { deferred, DeferredDialog, DeferredPanel, DeferredScreen } from './components/Deferred.tsx';
+import { deferred, DeferredDialog, DeferredMain, DeferredPanel, DeferredScreen } from './components/Deferred.tsx';
 import { Sidebar } from './components/Sidebar.tsx';
 import { Toasts } from './components/Toasts.tsx';
 import { TakeoverHost } from './components/BrowserTakeover.tsx';
 import { showToast } from './feedback.ts';
 import { actions, useStore } from './state.ts';
+import { type AppRoute, chatHash, readRoute, titleCount } from './teams.ts';
 import { cx } from './util.ts';
 
 // Opened now and then, so their code (and the modules only they use) loads when they first open.
@@ -19,11 +20,10 @@ const panelPart = deferred(() => import('./components/Panel.tsx'));
 const settingsPart = deferred(() => import('./components/SettingsDialog.tsx'));
 const setupPart = deferred(() => import('./components/Setup.tsx'));
 const skillsPart = deferred(() => import('./components/Skills.tsx'));
+const teamsPart = deferred(() => import('./components/Teams.tsx'));
 
-function readHash(): string | null {
-  const m = /^#\/m\/([\w-]+)/.exec(location.hash);
-  return m ? m[1] : null;
-}
+/** The address says what the main column shows: a chat (`#/m/…`, at a message when given) or Teams (`#/teams…`). */
+const currentRoute = (): AppRoute => readRoute(location.hash);
 
 // Below this width the open panel (styles.css) hides at least half of the chat, so the chat doesn't count as read.
 const PANEL_COVERS_CHAT = '(max-width: 1119px)';
@@ -48,7 +48,9 @@ export function App() {
   const updated = useStore((s) => s.updated);
   const bots = useStore((s) => s.bots);
   const setupDone = useStore((s) => s.setup?.completed ?? true);
-  const [selectedId, setSelectedId] = useState<string | null>(readHash);
+  const [route, setRoute] = useState<AppRoute>(currentRoute);
+  const selectedId = route?.kind === 'chat' ? route.botId : null;
+  const teamsRoute = route?.kind === 'teams' ? route.route : null;
   /** `at`: when it was asked for, so asking for the same focus again works. */
   const [panel, setPanel] = useState<{ tab: PanelTab; focus: string | null; at: number } | null>(null);
   const [dialog, setDialog] = useState<'new' | 'settings' | 'skills' | null>(null);
@@ -68,14 +70,19 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    const onHash = () => setSelectedId(readHash());
+    const onHash = () => setRoute(currentRoute());
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
 
   const select = useCallback((id: string | null) => {
     location.hash = id ? `/m/${id}` : '';
-    setSelectedId(id);
+    setRoute(id ? { kind: 'chat', botId: id, messageId: null } : null);
+  }, []);
+  // The chat has shown the message the address pointed at: the address keeps only the chat, so a reload doesn't jump.
+  const focused = useCallback((botId: string) => {
+    history.replaceState(null, '', `${location.pathname}${location.search}${chatHash(botId)}`);
+    setRoute({ kind: 'chat', botId, messageId: null });
   }, []);
 
   // Back to the list closes the panel; so does another Boton where the panel covers the chat.
@@ -114,18 +121,21 @@ export function App() {
   const bot = bots.find((b) => b.id === selectedId) ?? null;
 
   const primaryId = useStore((s) => s.settings?.primaryBotId ?? null);
-  // On wide screens, open the primary Boton (else the most recent one) when none is selected.
+  // On wide screens, open the primary Boton (else the most recent one) when neither a chat nor Teams is open.
   useEffect(() => {
-    if (ready && !bot && bots.length && window.matchMedia('(min-width: 800px)').matches) {
+    if (ready && !bot && !teamsRoute && bots.length && window.matchMedia('(min-width: 800px)').matches) {
       select(bots.find((b) => b.id === primaryId)?.id ?? bots[0].id);
     }
-  }, [ready, bot, bots, primaryId, select]);
+  }, [ready, bot, teamsRoute, bots, primaryId, select]);
 
+  // Unread chat messages and what needs the owner in Teams (unread conversations only get a dot, never a number).
   const unread = bots.reduce((n, b) => n + b.unread, 0);
-  const botName = bot?.name;
+  const attention = useStore((s) => s.teamsAttention);
+  const count = titleCount(unread, attention);
+  const place = bot?.name ?? (teamsRoute ? 'Teams' : undefined);
   useEffect(() => {
-    document.title = `${unread ? `(${unread}) ` : ''}${botName ? `${botName} · ` : ''}Botons`;
-  }, [unread, botName]);
+    document.title = `${count ? `(${count}) ` : ''}${place ? `${place} · ` : ''}Botons`;
+  }, [count, place]);
 
   if (pairing) return <DeferredScreen part={pairPart} what="the pairing screen">{(m) => <m.PairScreen status={pairing} />}</DeferredScreen>;
   if (loadError) {
@@ -149,7 +159,7 @@ export function App() {
   if (!setupDone) return <DeferredScreen part={setupPart} what="setup">{(m) => <m.SetupWizard onDone={(id) => id && select(id)} />}</DeferredScreen>;
 
   return (
-    <div className={cx('app', bot && 'has-bot', panel && bot && 'has-panel')}>
+    <div className={cx('app', (bot || teamsRoute) && 'has-main', panel && bot && 'has-panel')}>
       {!connected && <div className="offline">Reconnecting to the server…</div>}
       {connected && updated && (
         <div className="offline updated" role="status">
@@ -159,10 +169,23 @@ export function App() {
           </button>
         </div>
       )}
-      <Sidebar selectedId={selectedId} onSelect={select} onNew={(groupId) => (setNewIn(groupId), setDialog('new'))} onSettings={() => setDialog('settings')} onSkills={() => setDialog('skills')} />
-      {bot ? (
+      <Sidebar
+        selectedId={selectedId}
+        teamsOpen={!!teamsRoute}
+        onSelect={select}
+        onNew={(groupId) => (setNewIn(groupId), setDialog('new'))}
+        onSettings={() => setDialog('settings')}
+        onSkills={() => setDialog('skills')}
+      />
+      {teamsRoute ? (
+        <DeferredMain part={teamsPart} label="Teams" onBack={() => select(null)}>
+          {(m) => <m.TeamsView route={teamsRoute} onBack={() => select(null)} />}
+        </DeferredMain>
+      ) : bot ? (
         <Chat
           bot={bot}
+          focusId={route?.kind === 'chat' ? route.messageId : null}
+          onFocused={focused}
           covered={!!panel && panelCoversChat}
           onOpenPanel={(tab, focus) => setPanel({ tab, focus: focus ?? null, at: Date.now() })}
           onOpenBot={openBot}

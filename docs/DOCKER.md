@@ -148,7 +148,7 @@ Never use `seccomp=unconfined` or `privileged` for the browser: they open far mo
 
 ## Test the image
 
-`scripts/docker-smoke.sh` builds the image without the agent CLIs and runs it in a throwaway Compose project (`botons-smoke`, its own volumes) with the mock provider: health, host checks, doctor, the managed browser (`check-browser`, which must pass with Chromium's sandbox on, and the seccomp profile's namespaces), pairing, backup, restore and a recreate. CI runs it on every push.
+`scripts/docker-smoke.sh` builds the image without the agent CLIs and runs it in a throwaway Compose project (`botons-smoke`, its own volumes) with the mock provider: health, host checks, doctor, the managed browser (`check-browser`, which must pass with Chromium's sandbox on, and the seccomp profile's namespaces), pairing, backup, restore and a recreate. CI runs it on every push. It refuses to start while anything of `botons-smoke` already exists (a `KEEP=1` run included), rather than reuse or remove it. `scripts/docker-smoke.sh fixture up` keeps the same project running on a free 127.0.0.1 port in 17000–19999 for checking a client by hand; `fixture` alone lists its commands (approve a code, stop, start, down).
 
 ### Proxies that rewrite Host
 

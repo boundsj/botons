@@ -5,8 +5,7 @@ import { allowance, refusedAddress } from './ssrf.ts';
 import { HttpError } from './store.ts';
 
 /*
- * The managed browser's rules, as pure functions: which sites a Boton's browser may reach, and that it only reads
- * (GET and HEAD). The browser (browser.ts) enforces them where the Boton can't reach: in the server's own proxy,
+ * The managed browser's rules, as pure functions: which sites a Boton's browser may reach. The browser (browser.ts) enforces them where the Boton can't reach: in the server's own proxy,
  * which every request the browser makes goes through, and in its request routing, before a request leaves Chromium.
  */
 
@@ -14,7 +13,7 @@ export const NO_BROWSER: BrowserPolicy = { sites: [], updatedAt: null };
 
 /**
  * A new Boton's browser (blank, from a template or a starter): on, for any public site. "*" never covers this machine
- * or a private network (covers), and every write still waits on the owner's card.
+ * or a private network (covers).
  */
 export const NEW_BOTON_SITES = ['*'];
 
@@ -159,19 +158,8 @@ export function parsePolicy(raw: string | undefined): BrowserPolicy {
   }
 }
 
-/** What the browser may do with one request: load it, or refuse it with why (`write`: a write to an allowed site, which a card may let through once). */
-export type RequestVerdict = { ok: true } | { ok: false; why: string; write?: true };
-
-/**
- * The browser reads on its own: anything else (a form, a script's POST, a beacon, a CORS preflight for one) is refused
- * before it leaves Chromium, and again in the proxy for plain HTTP. The one way past is the owner's card: while the
- * Boton clicks or types, the first write to an allowed site is held, shown in full and sent once if allowed
- * (browser.ts, browser-request.ts).
- */
-export const READ_METHODS = new Set(['GET', 'HEAD']);
-
-/** Requests that change something, which the browser sends only through a card. Anything else not a read is refused. */
-export const WRITE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+/** Whether the request reaches an allowed site. HTTP methods do not determine consent. */
+export type RequestVerdict = { ok: true } | { ok: false; why: string };
 
 export function portOf(u: URL): number {
   return u.port ? Number(u.port) : u.protocol === 'https:' || u.protocol === 'wss:' ? 443 : 80;
@@ -190,8 +178,8 @@ export function displayUrl(raw: string): string {
   }
 }
 
-/** A request the page makes: only http(s) to allowed sites, and only reads. Where the browser is off, see browser.ts. */
-export function judgeRequest(raw: string, method: string, sites: string[]): RequestVerdict {
+/** A request the page makes: only http(s) to allowed sites, regardless of method. Where the browser is off, see browser.ts. */
+export function judgeRequest(raw: string, _method: string, sites: string[]): RequestVerdict {
   let u: URL;
   try {
     u = new URL(raw);
@@ -204,7 +192,5 @@ export function judgeRequest(raw: string, method: string, sites: string[]): Requ
   const host = hostOf(u);
   const port = portOf(u);
   if (!siteFor(sites, host, port)) return { ok: false, why: `${u.host} is not one of the allowed sites` };
-  const m = method.toUpperCase();
-  if (!READ_METHODS.has(m)) return { ok: false, why: `a ${m} request to ${u.host}: the browser only reads pages, unless you allow one on a card`, ...(WRITE_METHODS.has(m) ? { write: true as const } : {}) };
   return { ok: true };
 }

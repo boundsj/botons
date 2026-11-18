@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
+import { BrowserKeyDownload } from './browser-key-download.ts';
 import { browserSearchPaths } from './browser-paths.ts';
-import { brotliDecompressSync, gunzipSync, inflateSync, zstdDecompressSync } from 'node:zlib';
 import { appendFileSync, chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import type {
@@ -20,17 +20,15 @@ import type {
   BrowserStatus,
 } from '../../shared/types.ts';
 import { BROWSER_CONNECTOR, BROWSER_SERVER } from '../../shared/util.ts';
-import type { Approvals, BrowserHolds } from './approvals.ts';
 import { type Audit, SYSTEM_ACTOR } from './audit.ts';
 import type { Principal } from './auth.ts';
 import { interceptCert } from './browser-cert.ts';
-import { fitViewport, FRAME_MIN_MS, IDLE_MS, INPUT_WINDOW_MS, INTENT_MS, MAX_COPY, MAX_HANDOVER_MS, MAX_INPUTS, parseOwnerInput, pressed, RateWindow, VIEWPORT } from './browser-handover.ts';
+import { fitViewport, FRAME_MIN_MS, IDLE_MS, INPUT_WINDOW_MS, MAX_COPY, MAX_HANDOVER_MS, MAX_INPUTS, parseOwnerInput, pressed, RateWindow, VIEWPORT } from './browser-handover.ts';
 import type { BrowserHandoffs } from './browser-handoff.ts';
-import { applyPolicy, displayUrl, effectiveSites, judgeRequest, parsePolicy, portOf } from './browser-policy.ts';
+import { applyPolicy, displayUrl, effectiveSites, judgeRequest, parsePolicy } from './browser-policy.ts';
 import { type BrowserProxy, type ProxyPolicy, startBrowserProxy } from './browser-proxy.ts';
-import { type Binding, describeRequest, type FieldInfo, fingerprint, type HeldRequest, heldCookies, sameRequest, shown, staleCookies, typingProblem, wireHeaders } from './browser-request.ts';
+import { type FieldInfo, staleCookies, typingProblem } from './browser-request.ts';
 import { screenshotToChat, type ShareFile } from './browser-screenshot.ts';
-import { sendHeld } from './browser-send.ts';
 import type { Config } from './config.ts';
 import { log } from './log.ts';
 import type { TurnMcpServer } from './providers/types.ts';
@@ -41,32 +39,14 @@ import { HttpError, type Store } from './store.ts';
  * Boton's turns as a Botons-managed connector (BROWSER_CONNECTOR, `botons browser-mcp`, the same for Claude and
  * Codex): the owner turns it on by giving the Boton that connector, and lists the sites it may load.
  *
- * Opening and reading a page loads what the page loads: GET and HEAD requests to the allowed sites, as any browser
- * would (a site can act on a GET too, so that is all it is: site-bound, not proof that nothing changes). Acting on a
- * page is what the owner's cards are for. The Boton clicks and types into the controls a read listed (never into a
- * password, code or card field), and nothing it does runs its own script in a page or reads cookies or files. A click
- * on a link to an allowed site opens that address, as open would, without running the page's script. Any other click
- * or typing marks the page as acted on, and from then on nothing it sends leaves on its own, whatever the method:
- * while the step runs, the first request it makes (a form before a script's request) waits on a card that shows that
- * exact request (method, full address, every field, its cookies by name) and is bound to its fingerprint, the turn,
- * this browser and the page's document. Its cookies must be ones the browser held for that address while the step ran
- * (a site's own cookies change as it works, and that is fine; one the browser never held means no card), and it goes
- * with exactly those, as held; every other request it makes, then or later (a
- * timer, a poll, a beacon as it unloads), is refused. Allowed, the card's request is sent once by browser-send.ts,
- * exactly as held, with no cookie added, through the proxy, with no redirect that would send it again; denied,
- * withdrawn, or not decided while the step waits, it never leaves. Opening an address or going back from a page
- * acted on ends that whole browser (its Chromium, and its proxy, sealed until it closes) and starts another on the
- * same profile with the same cookies, so nothing the old page had under way (an unload's beacon, a keepalive fetch)
- * can go: not on a timer's guess that it has arrived, but because the process that held it and the proxy it could
- * reach are gone. Labels are the site's text, never a reason.
+ * Pages make normal HTTP requests within the allowed sites. Before consequential external actions the Boton
+ * follows the product's normal approval rules. Passwords, codes and private sign-in remain owner-only.
  *
  * What holds whatever the Boton or a page does:
  * - It runs only inside a turn that was given it, for that turn's token, and closes when the turn ends; taking the
  *   connector away (Stop, or unchecking it) closes it at once. Webhook runs get no connectors, so no browser.
  * - Every request goes through the server's proxy (browser-proxy.ts), which allows only the owner's sites and, for a
- *   name, only public addresses it resolves to; routing refuses anything but GET and HEAD before it leaves Chromium,
- *   and everything from a page acted on (but for the one request a card holds), and WebSockets never connect. Changing the sites cuts tunnels, and plain HTTP responses still arriving, to a site
- *   no longer listed.
+ *   name, only public addresses it resolves to. HTTP methods do not determine approval.
  * - Chromium's own sandbox is on (in Docker, compose.yaml's seccomp profile lets it start; BOTONS_BROWSER_SANDBOX=0
  *   is the owner's last resort where a host still can't). Downloads and file pickers are refused, other tabs
  *   closed, dialogs dismissed, service workers blocked.
@@ -89,10 +69,6 @@ const MAX_TEXT = 20_000;
 const MAX_LINKS = 100;
 const MAX_CONTROLS = 150;
 const MAX_TYPED = 2000;
-/** After a click or typing, how long a request the page sends because of it is still held for a card. */
-const SETTLE_MS = 1500;
-/** Once a script's request is held, how much longer a form the same step submits may take its place. */
-const FORM_GRACE_MS = 300;
 /** What read lists as controls, and click and type find again by their place in this list. */
 const CONTROLS = 'a[href], button, input:not([type="hidden"]), select, textarea, [role="button"], [role="link"], [role="checkbox"]';
 const ACTION_TIMEOUT_MS = 30_000;
@@ -109,12 +85,10 @@ const HANDOVER_ENDS: Record<HandoverEnd, string> = {
   shutdown: 'the server is stopping',
   deleted: 'the Boton was deleted',
 };
-/** The most of an allowed request's answer that is passed to the page. */
-const ANSWER_MAX = 20 * 1024 * 1024;
 const JOURNAL_KEEP = 2000;
 const DEFAULT_PATHS = browserSearchPaths();
 export const CAPABILITY =
-  "Opens pages on the listed sites (loading them as any browser does, with GET requests), reads their text, links and controls, goes back, takes screenshots, clicks and types (never into password, code or card fields). Once it clicks or types on a page, nothing that page sends goes without your card: the request it makes (a form, a POST, or a GET) waits on a card that shows exactly that request, sent once only if you allow it while the Boton's step waits, and anything else the page sends is refused. It never signs in itself: when a step is yours (a sign-in, a code, a captcha), it asks in the chat and you tap Take over to do it in its browser (it can't use the browser until you hand it back, and keeps the sign-in after). It does not download or upload.";
+  "Opens pages on the listed sites, reads their text and controls, goes back, takes screenshots, clicks and types. Pages make normal HTTP requests. Consequential external actions still follow your approval rules. Passwords, codes and card fields remain owner-only: use Take over to sign in, then Done to hand back. No downloads or uploads.";
 const DESKTOP_WHY =
   "Botons doesn't control this computer's screen, mouse or keyboard: Botons work in their own managed browser instead, which needs no display.";
 
@@ -215,19 +189,8 @@ interface Control extends FieldInfo {
   href: string;
 }
 
-/** A click or typing in progress: while `open`, the first request of the page (to an allowed site) is held here, not refused. */
-interface Op {
-  open: boolean;
-  /** The whole cookie jar as the step began (null if it could not be read): the one every later read must equal. */
-  cookies: Cookie[] | null;
-  held: { route: Route; request: Request; rank: number } | null;
-  onHeld: () => void;
-}
-
-/** Which request a card is for when a step makes several: a navigation (a form), then a script's, then anything else. */
-const rankOf = (r: Request) => (r.isNavigationRequest() ? 3 : ['fetch', 'xhr', 'eventsource', 'ping'].includes(r.resourceType()) ? 2 : 1);
-
 interface Session {
+  privateDownload: BrowserKeyDownload | null;
   context: Context;
   page: Page;
   proxy: BrowserProxy;
@@ -235,42 +198,22 @@ interface Session {
   blocked: { url: string; why: string; request?: object }[];
   /** Sites the proxy could not reach in this step (not found, no address answered): never Botons refusing them. */
   unreachable: { url: string; host: string; message: string }[];
-  /** New each time Chromium starts: a card made for one browser never applies to the next. */
-  id: string;
-  /** The page's document: one more each time its main frame navigates, so refs and cards from before no longer apply. */
+  /** The page's document: one more each time its main frame navigates, so refs from before no longer apply. */
   revision: number;
   /** The controls the last read listed, and for which document. */
   controls: { revision: number; list: Control[] } | null;
-  op: Op | null;
-  /** The page was clicked or typed on: nothing it sends leaves without a card any more (a new browser ends that). */
-  actedOn: boolean;
-  /** Some page of this browser was acted on: a request no page can be named for (a worker's) is refused from then on. */
-  everActed: boolean;
-  /** The main frame's addresses, for back from a page acted on (which opens the one before in a new browser). */
-  trail: string[];
-  /** Ends the wait of the card holding a request (the browser is closing). */
-  endWait: (() => void) | null;
-  /** Cuts the send of an allowed request (the browser is closing). */
-  sending: AbortController | null;
   closed: boolean;
 }
 
 /** The owner's browser in a handover: run for the owner alone, never reached by the Boton. */
 interface OwnerSession {
+  privateDownload: BrowserKeyDownload | null;
   context: Context;
   page: Page;
   proxy: BrowserProxy;
   /** The server's own DevTools session on that page, for the live view and a copy: never the owner's or the page's. */
   cdp: import('playwright-core').CDPSession | null;
 }
-
-const sameHost = (a: string, b: string) => {
-  try {
-    return new URL(a).host === new URL(b).host;
-  } catch {
-    return false;
-  }
-};
 
 /** Where the live view goes: the driving device's open stream. */
 export interface HandoverSink {
@@ -309,8 +252,6 @@ interface Handover {
   startedAt: number;
   /** The owner's last input or frame (for the idle limit). */
   lastActive: number;
-  /** The owner's last click, key or typing: what the page sends within INTENT_MS of it may go. */
-  lastIntent: number;
   session: Promise<OwnerSession>;
   /** Its page once open, and that page's title as last read. */
   view: Page | null;
@@ -342,7 +283,6 @@ interface Handover {
 export interface BrowserDeps {
   cfg: Config;
   store: Store;
-  approvals: Approvals;
   /** Whether a brain can run the browser (drivesBrowser: a CLI provider). */
   usesConnectors: (provider: string) => boolean;
   /** The Boton's access in its running turn, if any. */
@@ -362,9 +302,9 @@ export interface Availability {
   executable: string | null;
 }
 
-export class Browser implements BrowserHolds {
+export class Browser {
   #deps: BrowserDeps;
-  /** Tests only: the certificate of their own HTTPS site, trusted by the browser's proxy and by the send of an allowed request. */
+  /** Tests only: the certificate of their own HTTPS site, trusted by the browser's proxy. */
   testTrust: { cert: string; spki: string } | null = null;
   /** Tests only: the Boton's browser's cookies for `url` now (none without a browser). */
   async testCookies(botId: string, url: string): Promise<{ name: string; value: string }[]> {
@@ -375,14 +315,8 @@ export class Browser implements BrowserHolds {
   async testJar(botId: string): Promise<Context | null> {
     return (await this.#sessions.get(botId)?.catch(() => null))?.context ?? null;
   }
-  /**
-   * Tests only: awaited at fixed points of a click or typing, so a test can change the jar exactly there: `acting` once
-   * the step's jar is read and before the page acts (so before Chromium writes any Cookie header), `held` once a held
-   * request's headers are read and before the jar is read again, `card` once its card exists and waits.
-   */
-  testGate: ((at: 'acting' | 'held' | 'card', botId: string) => Promise<void>) | null = null;
-  /** Tests only: shorter handover limits than INTENT_MS and IDLE_MS. */
-  testHandover: { intentMs?: number; idleMs?: number } | null = null;
+  /** Tests only: a shorter idle limit. */
+  testHandover: { idleMs?: number } | null = null;
   /** Tests only: the owner's handover browser's cookie jar (null without one). */
   async testOwnerJar(botId: string): Promise<Context | null> {
     return (await this.#handovers.get(botId)?.session.catch(() => null))?.context ?? null;
@@ -397,8 +331,6 @@ export class Browser implements BrowserHolds {
    * address). Gone once a handover ends.
    */
   #handoffPage = new Map<string, string>();
-  /** Cards waiting on a request the browser holds, by approval id: how to wake the step that waits. */
-  #waits = new Map<string, () => void>();
   readonly dir: string;
   #sessions = new Map<string, Promise<Session>>();
   /** The token of the turn that was given the browser, by Boton: only it may drive it. */
@@ -418,16 +350,6 @@ export class Browser implements BrowserHolds {
     chmodSync(this.dir, 0o700);
     // A handover's profile is never left behind: one still here is from a server that stopped without ending it.
     for (const name of readdirSync(this.dir)) this.#dropOwnerProfile(name);
-  }
-
-  /** Whether a step still waits on this card, holding its request (approvals.ts asks before taking a decision). */
-  holds(approvalId: string): boolean {
-    return this.#waits.has(approvalId);
-  }
-
-  /** The card was decided or withdrawn: the step that waits on it goes on. */
-  decided(approvalId: string): void {
-    this.#waits.get(approvalId)?.();
   }
 
   // ------------------------------------------------------------- settings
@@ -566,7 +488,7 @@ export class Browser implements BrowserHolds {
       headed: this.#headed(),
       running: this.#sessions.has(botId),
       workspace: bot.access === 'workspace',
-      capability: CAPABILITY,
+      capability: CAPABILITY + (this.#deps.cfg.browser.apnsDownloadDir ? ' An operator can authorize one private APNs key import; its bytes are never returned.' : ''),
       desktop: DESKTOP_WHY,
       handover: this.handover(botId, deviceId),
     };
@@ -580,8 +502,7 @@ export class Browser implements BrowserHolds {
       command: process.execPath,
       args: ['--no-warnings', resolve(this.#deps.cfg.botonBinDir, '../src/cli/botons.ts'), 'browser-mcp'],
       env: {},
-      // A click may wait for the owner's card: as long as an approval waits, and the send after.
-      toolTimeoutSec: Math.ceil(this.#deps.cfg.approvalWaitMs / 1000) + 2 * (ACTION_TIMEOUT_MS / 1000) + 30,
+      toolTimeoutSec: 2 * (ACTION_TIMEOUT_MS / 1000) + 30,
     };
   }
 
@@ -658,84 +579,40 @@ export class Browser implements BrowserHolds {
     return starting;
   }
 
-  /**
-   * In place of a browser whose page was acted on: that one ends (its Chromium exits, its proxy, still sealed, closes)
-   * before another starts on the same profile, with the cookies it had, the same address trail and the same list of
-   * what was blocked in this step. Whatever the old page still had on its way can go nowhere: the proxy it could
-   * reach refuses everything until it is gone, and nothing listens on its port after.
-   */
-  #replace(botId: string, old: Session): Promise<Session> {
-    return this.#start(
-      botId,
-      (async () => {
-        const cookies = await old.context.cookies().catch(() => []);
-        old.closed = true;
-        old.endWait?.();
-        old.sending?.abort();
-        old.proxy.seal(true);
-        await old.context.close().catch(() => {});
-        await old.proxy.close();
-        return this.#launch(botId, { blocked: old.blocked, unreachable: old.unreachable, trail: old.trail, cookies });
-      })(),
-    );
+  #privateDownload(botId: string, actor: 'agent' | 'owner', alive: () => boolean): BrowserKeyDownload | null {
+    const dir = this.#deps.cfg.browser.apnsDownloadDir;
+    return dir ? new BrowserKeyDownload(dir, [this.#deps.cfg.home, this.#deps.cfg.workspacesDir, resolve(import.meta.dirname, '../..')], botId, actor, alive) : null;
   }
 
-  async #launch(botId: string, carry?: { blocked: Session['blocked']; unreachable: Session['unreachable']; trail: string[]; cookies: Cookie[] }): Promise<Session> {
+  async #launch(botId: string): Promise<Session> {
     const pw = await this.#playwright();
     const a = await this.availability();
     if (!pw || !a.executable) throw new HttpError(503, a.why ?? 'No browser on this server');
     const profile = join(this.#botDir(botId), 'profile');
     mkdirSync(profile, { recursive: true, mode: 0o700 });
-    const blocked: Session['blocked'] = carry?.blocked ?? [];
+    const blocked: Session['blocked'] = [];
     const note = (url: string, why: string, request?: Request) => {
       if (blocked.length < 50) blocked.push({ url: displayUrl(url), why, ...(request ? { request } : {}) });
       this.#journal(botId, { action: 'blocked', url: displayUrl(url), outcome: 'refused', detail: why });
     };
-    const unreachable: Session['unreachable'] = carry?.unreachable ?? [];
+    const unreachable: Session['unreachable'] = [];
     const noted = (url: string, message: string) => {
       if (unreachable.length < 50) unreachable.push({ url: displayUrl(url), host: hostOfUrl(url), message });
       this.#journal(botId, { action: 'unreachable', url: displayUrl(url), outcome: 'refused', detail: message });
     };
-    let started: Session | null = null;
     // The owner has it: no browser of the Boton's opens on the profile until they finish.
     if (this.#handovers.has(botId)) throw new HttpError(409, `${this.#deps.store.getSettings().ownerName} has the browser now.`);
+    const turn = this.#turns.get(botId);
+    const privateDownload = this.#privateDownload(botId, 'agent', () => !!turn && this.#turns.get(botId) === turn && !this.#handovers.has(botId) && this.enabled(botId));
     const { context, page, proxy } = await openGuarded(pw, profile, {
+      privateDownload,
       executable: a.executable,
       sandbox: this.#deps.cfg.browser.sandbox,
       headless: !this.#headed(),
       policy: () => this.#proxyPolicy(botId),
       note,
       onUnreachable: noted,
-      // Its HTTPS ends at its proxy (openGuarded), which refuses every write it sees there (this policy never allows
-      // one): a request Playwright's routing never sees (a beacon or keepalive fetch as a document unloads) is judged
-      // too. Only the send of a card's request, by a pass, gets a tunnel to the site itself.
       trustCa: this.testTrust ? [this.testTrust.cert] : undefined,
-      gate: (route, request, write) => {
-        const s = started;
-        if (!s || s.closed) return 'the browser is closing';
-        let page: Page | null = null;
-        try {
-          page = request.frame().page();
-        } catch {}
-        if (!page) return s.everActed ? 'no page of this browser made it (a worker), after a page was acted on' : write ? null : 'pass';
-        if (page !== s.page) return 'it came from a page the browser has left';
-        const op = s.op;
-        if (op?.open) {
-          // While a click or typing runs: one request for the card (a form before a script's, a script's before the rest).
-          const rank = rankOf(request);
-          if (op.held) {
-            if (rank <= op.held.rank) return 'the step had already made a request, which waits on the card';
-            const before = op.held;
-            note(before.request.url(), 'the step then made another request, which goes to the card instead', before.request);
-            void before.route.abort('blockedbyclient').catch(() => {});
-          }
-          op.held = { route, request, rank };
-          op.onHeld();
-          return 'held';
-        }
-        if (s.actedOn) return 'the page was clicked or typed on, so nothing more it sends leaves without a card (open an address to go on)';
-        return write ? null : 'pass';
-      },
       onDownload: (url) => this.#journal(botId, { action: 'download', url: displayUrl(url), outcome: 'refused', detail: 'Downloads are refused.' }),
     }).catch((err) => {
       const first = (err as Error).message.split('\n').find((l) => l.trim()) ?? '';
@@ -743,32 +620,22 @@ export class Browser implements BrowserHolds {
       throw new HttpError(503, `The browser did not start: ${first.slice(0, 200)}`);
     });
     const s: Session = {
+      privateDownload,
       context,
       page,
       proxy,
       blocked,
       unreachable,
-      id: randomBytes(12).toString('base64url'),
       revision: 0,
       controls: null,
-      op: null,
-      actedOn: false,
-      everActed: false,
-      trail: carry?.trail ?? [],
-      endWait: null,
-      sending: null,
       closed: false,
     };
-    // The cookies the browser before it had (session ones too, which a profile doesn't keep across a restart): the one
-    // it replaces, else the last one to close (the owner's, after a sign-in).
-    const cookies = carry?.cookies ?? this.#carry.get(botId) ?? [];
+    // Restore session cookies too: Chromium does not keep them across a profile restart.
+    const cookies = this.#carry.get(botId) ?? [];
     if (cookies.length) await context.addCookies(cookies).catch(() => {});
-    started = s;
     watchPage(s, page);
     context.on('close', () => {
       s.closed = true;
-      s.endWait?.();
-      s.sending?.abort();
     });
     log.info('browser started', { botId, headless: !this.#headed(), sandbox: this.#deps.cfg.browser.sandbox });
     return s;
@@ -780,10 +647,8 @@ export class Browser implements BrowserHolds {
     this.#sessions.delete(botId);
     try {
       const s = await open;
-      // A card waiting on a request of this browser is withdrawn, and the request never sent.
+      // Closing seals the proxy before the process and its connections end.
       s.closed = true;
-      s.endWait?.();
-      s.sending?.abort();
       s.proxy.seal(true);
       await this.#keep(botId, s.context);
       await s.context.close().catch(() => {});
@@ -876,12 +741,11 @@ export class Browser implements BrowserHolds {
   }
 
   #idleMs = () => this.testHandover?.idleMs ?? IDLE_MS;
-  #intentMs = () => this.testHandover?.intentMs ?? INTENT_MS;
 
   /** What the proxy lets the owner's browser reach: nothing once the handover ends, the Boton's sites until then. */
   #ownerPolicy(botId: string, h: Handover): ProxyPolicy {
     if (h.ended || this.#handovers.get(botId) !== h || !this.enabled(botId)) return { enabled: false, sites: [] };
-    return { enabled: true, sites: this.sites(botId), writes: Date.now() - h.lastIntent < this.#intentMs() };
+    return { enabled: true, sites: this.sites(botId) };
   }
 
   /** The handover `deviceId` drives, or why not (409: none, or not this one; 403: another device's). */
@@ -903,8 +767,7 @@ export class Browser implements BrowserHolds {
   }
 
   /**
-   * The owner (`by`, a paired device) takes the Boton's browser over. The Boton's browser closes first (a card it
-   * waits on is withdrawn, its request never sent), and while the handover lasts it opens none: its tools are refused.
+   * The owner (`by`, a paired device) takes the Boton's browser over. The Boton's browser closes first, and while the handover lasts it opens none: its tools are refused.
    * Then a browser of the owner's own opens on the same profile with the same cookies, on a blank page (nothing is
    * opened for the owner: they choose the address). The same device asking again gets the same handover.
    */
@@ -937,7 +800,6 @@ export class Browser implements BrowserHolds {
       deviceLabel,
       startedAt: now,
       lastActive: now,
-      lastIntent: 0,
       session: null as unknown as Promise<OwnerSession>,
       view: null,
       title: '',
@@ -1001,8 +863,9 @@ export class Browser implements BrowserHolds {
     const profile = join(this.#ownerDir(botId), 'profile');
     mkdirSync(profile, { recursive: true, mode: 0o700 });
     const owner = this.#deps.store.getSettings().ownerName;
-    let ownerPage: Page | null = null;
+    const privateDownload = this.#privateDownload(botId, 'owner', () => !h.ended && this.#handovers.get(botId) === h && this.enabled(botId));
     const opened = await openGuarded(pw, profile, {
+      privateDownload,
       executable: a.executable,
       sandbox: this.#deps.cfg.browser.sandbox,
       headless: !this.#headed(),
@@ -1010,42 +873,21 @@ export class Browser implements BrowserHolds {
       policy: () => this.#ownerPolicy(botId, h),
       note: (url, why) => {
         this.#journal(botId, { action: 'blocked', url: displayUrl(url), outcome: 'refused', detail: `In ${owner}'s handover: ${why}` });
-        // Said in the view as Botons' own, apart from anything the site says: only the page's own site's requests
-        // (Chromium's own calls and other sites' are refused as quietly as ever).
-        if (sameHost(url, h.view?.url() ?? '')) h.sink?.notice({ type: 'paused', url: displayUrl(url), why });
       },
       onUnreachable: (url, message) => this.#journal(botId, { action: 'unreachable', url: displayUrl(url), outcome: 'refused', detail: `In ${owner}'s handover: ${message}` }),
-      // Its HTTPS ends at its proxy, which sees and decides every request (a write only within the owner's moment) and
-      // journals each write as it leaves: whatever in Chromium sent it, routing seen or not.
       trustCa: this.testTrust ? [this.testTrust.cert] : undefined,
-      onWrite: (url, method) => this.#journal(botId, { action: 'handover', url: displayUrl(url), outcome: 'done', detail: `${method} sent by the page, after ${owner}'s input in the handover` }),
-      gate: (_route, request, write) => {
-        if (h.ended || this.#handovers.get(botId) !== h) return 'the handover has ended';
-        let from: Page | null = null;
-        try {
-          from = request.frame().page();
-        } catch {}
-        if (!from) return write ? 'no page made it (a worker), and only the page the owner is on sends' : 'pass';
-        if (from !== ownerPage) return 'it came from a page the browser has left';
-        if (!write) return 'pass';
-        if (Date.now() - h.lastIntent >= this.#intentMs()) {
-          return `the page sent it on its own, not within ${Math.round(this.#intentMs() / 1000)} seconds of ${owner}'s click, key or typing, so it was refused`;
-        }
-        // The proxy decides it again as it leaves, and journals it then.
-        return 'send';
-      },
       onDownload: (url) => this.#journal(botId, { action: 'download', url: displayUrl(url), outcome: 'refused', detail: 'Downloads are refused.' }),
     }).catch((err) => {
       log.error('the browser did not start', { botId, err });
       throw new HttpError(503, 'The browser did not start.');
     });
     const { context, page, proxy } = opened;
-    ownerPage = page;
     if (cookies.length) await context.addCookies(cookies).catch(() => {});
     h.view = page;
     // Where the page is, and the site's own error answers for it, for the live view (never called a block).
     page.on('framenavigated', (f) => {
-      if (f !== page.mainFrame() || !/^https?:/i.test(f.url())) return;
+      if (f !== page.mainFrame()) return;
+      if (!/^https?:/i.test(f.url())) return;
       h.sink?.notice({ type: 'page', url: displayUrl(f.url()), title: h.title });
     });
     page.on('load', () => {
@@ -1065,7 +907,7 @@ export class Browser implements BrowserHolds {
     // Chromium gone on its own (it crashed, or was killed): the handover is over.
     context.on('close', () => void this.giveBack(botId, h.id, 'closed'));
     log.info('browser started', { botId, headless: !this.#headed(), sandbox: this.#deps.cfg.browser.sandbox });
-    return { context, page, proxy, cdp: null };
+    return { context, page, proxy, privateDownload, cdp: null };
   }
 
   /** The server's DevTools session on the owner's page (one, made when first needed). */
@@ -1086,7 +928,7 @@ export class Browser implements BrowserHolds {
   /**
    * The live view: a screencast of the owner's page to the driving device's stream, each frame acknowledged only once
    * it has gone (so a slow connection gets fewer frames, never a backlog), with notices of where the page is, the
-   * site's own errors and what Botons paused. One stream at a time: a new one ends the one before. While it is open
+   * site's own errors. One stream at a time: a new one ends the one before. While it is open
    * the handover counts as in use. Returns how to stop it.
    */
   async stream(botId: string, deviceId: string | null, sink: HandoverSink): Promise<() => void> {
@@ -1239,7 +1081,10 @@ export class Browser implements BrowserHolds {
   async #ownerStep(botId: string, h: Handover, input: BrowserHandoverInput): Promise<BrowserHandoverResult> {
     const s = await h.session;
     try {
-      return await this.#ownerDo(botId, h, s, input);
+      if (input.action === 'click' || input.action === 'up' || (input.action === 'key' && input.key === 'Enter')) s.privateDownload?.intent(s.page.url());
+      const result = await this.#ownerDo(botId, h, s, input);
+      const capture = await s.privateDownload?.finish();
+      return capture ? { ...result, outcome: capture === 'saved' ? 'done' : 'refused', message: capture === 'saved' ? 'The approved key was saved privately on this server.' : 'The private key was not saved. Check the private capture receipt before any further action.' } : result;
     } finally {
       if (!h.ended) h.jar = (await s.context.cookies().catch(() => null)) ?? h.jar;
     }
@@ -1259,13 +1104,8 @@ export class Browser implements BrowserHolds {
       await new Promise((r) => setTimeout(r, 400));
       await page.waitForLoadState('domcontentloaded', { timeout: 5000 }).catch(() => {});
     };
-    const intent = () => (h.lastIntent = Date.now());
-    // Open, back and reload are no consent to send: the moment of the owner's last input ends, and everything the
-    // page has open or under way is cut, before the page goes (what it sends as it unloads is then refused).
-    const leave = () => {
-      h.lastIntent = 0;
-      s.proxy.cut();
-    };
+    // Navigation ends connections from the page being left.
+    const leave = () => { s.proxy.cut(); };
     // Points inside the page as it is now (the view may be a moment behind a resize).
     const at = (p: { x: number; y: number }) => ({ x: Math.min(p.x, h.viewport.width - 1), y: Math.min(p.y, h.viewport.height - 1) });
     const takesText = async () => (await this.#isolated(s, FOCUS_TAKES_TEXT).catch(() => false)) === true;
@@ -1300,21 +1140,18 @@ export class Browser implements BrowserHolds {
           return done(`Opened (HTTP ${res?.status() ?? '—'}).`);
         }
         case 'click': {
-          intent();
           const p = at(input);
           await page.mouse.click(p.x, p.y, { clickCount: input.count ?? 1 });
           await settle();
           return { ...(await done('Clicked.')), editable: await takesText() };
         }
         case 'down': {
-          intent();
           const p = at(input);
           await page.mouse.move(p.x, p.y);
           await page.mouse.down({ button: input.button, clickCount: input.count ?? 1 });
           return done('Pressed.');
         }
         case 'up': {
-          intent();
           const p = at(input);
           await page.mouse.move(p.x, p.y);
           await page.mouse.up({ button: input.button, clickCount: input.count ?? 1 });
@@ -1333,12 +1170,10 @@ export class Browser implements BrowserHolds {
           return done('Scrolled.');
         }
         case 'type':
-          intent();
           await page.keyboard.type(input.text);
           // Never the text: only that some was typed.
           return done('Typed.');
         case 'paste':
-          intent();
           await page.keyboard.insertText(input.text);
           // Never the text: only that some was pasted.
           return done('Pasted.');
@@ -1348,7 +1183,6 @@ export class Browser implements BrowserHolds {
           return { ...(await done('Copied.')), copied: typeof text === 'string' ? text.slice(0, MAX_COPY) : '' };
         }
         case 'key':
-          intent();
           await page.keyboard.press(pressed(input.key, input.mods));
           if (input.key === 'Enter') await settle();
           return done(`Pressed ${pressed(input.key, input.mods)}.`);
@@ -1443,7 +1277,9 @@ export class Browser implements BrowserHolds {
     s.blocked.length = 0;
     s.unreachable.length = 0;
     try {
-      const result = await this.#run(botId, tokenId, s, action, input, sites);
+      let result = await this.#run(botId, tokenId, s, action, input, sites);
+      const capture = await s.privateDownload?.finish();
+      if (capture) result = { ...result, outcome: capture === 'saved' ? 'done' : 'refused', message: capture === 'saved' ? 'The approved key was saved privately on this server.' : 'The private key was not saved. Check the private capture receipt before any further action.' };
       if (s.blocked.length) result.blocked = s.blocked.map((b) => `${b.url}: ${b.why}`);
       if (s.unreachable.length) result.unreachable = [...new Set(s.unreachable.map((u) => u.message))];
       this.#journal(botId, { action, url: result.page?.url ?? '', outcome: result.outcome, detail: result.message });
@@ -1500,245 +1336,14 @@ export class Browser implements BrowserHolds {
     return { control, locator };
   }
 
-  /**
-   * A click or typing, then the request it made the page send, if any: held for the owner's card. The page is acted on
-   * from the moment the step starts: anything else it sends, during the step or after, is refused.
-   */
-  async #operate(botId: string, tokenId: string, s: Session, what: string, step: () => Promise<void>, doneText: string): Promise<BrowserActionResult> {
-    let wake = () => {};
-    const heldNow = new Promise<void>((r) => (wake = r));
-    const op: Op = { open: true, cookies: await s.context.cookies().catch(() => null), held: null, onHeld: () => wake() };
-    // Acted on from here: the routing holds or refuses each request the page makes, and the proxy lets nothing go
-    // (not even what Playwright can't name a frame for) but the one send of a card the owner allows.
-    s.actedOn = true;
-    s.everActed = true;
-    s.proxy.seal(true);
-    s.op = op;
-    try {
-      await this.testGate?.('acting', botId);
-      await step();
-      let timer: NodeJS.Timeout | undefined;
-      await Promise.race([heldNow, new Promise<void>((r) => (timer = setTimeout(r, SETTLE_MS)))]);
-      clearTimeout(timer);
-      // A script's request was held first: the form the same step submits, if any, takes its place.
-      if (op.held && op.held.rank < 3) await new Promise((r) => setTimeout(r, FORM_GRACE_MS));
-    } catch (err) {
-      op.open = false;
-      s.op = null;
-      if (op.held) await op.held.route.abort('blockedbyclient').catch(() => {});
-      throw err;
-    }
-    op.open = false;
-    s.op = null;
-    if (!op.held) return { outcome: 'done', message: `${doneText} The page sent nothing. Use read to see the page.`, page: await this.#pageInfo(s) };
-    return this.#approve(botId, tokenId, s, op.held, op.cookies, what);
+  /** Run the selected UI action. Normal page requests follow the allowed-site policy. */
+  async #operate(s: Session, step: () => Promise<void>, doneText: string): Promise<BrowserActionResult> {
+    await step();
+    return { outcome: 'done', message: `${doneText} Use read to see the page.`, page: await this.#pageInfo(s) };
   }
 
-  /**
-   * What is bound for a held request: the request as Chromium would send it, with its headers read first and the whole
-   * jar after, its cookies judged by heldCookies against the jar as the step began (`start`) and now, or why it can't
-   * go (it carries a cookie the browser didn't hold for its address).
-   */
-  async #readHeld(botId: string, s: Session, request: Request, start: Cookie[] | null, seen?: (jar: Cookie[]) => void): Promise<HeldRequest | { why: string }> {
-    const headers = await request.allHeaders();
-    await this.testGate?.('held', botId);
-    const now = await s.context.cookies();
-    seen?.(now);
-    const cookies = heldCookies(headers.cookie, request.url(), start, now);
-    if ('why' in cookies) return cookies;
-    return { method: request.method().toUpperCase(), url: request.url(), headers, body: request.postDataBuffer(), changed: cookies.changed };
-  }
-
-  /** A held request: its card, the owner's decision, and, if allowed while still bound, the one send. */
-  async #approve(botId: string, tokenId: string, s: Session, held: { route: Route; request: Request }, start: Cookie[] | null, what: string): Promise<BrowserActionResult> {
-    const owner = this.#deps.store.getSettings().ownerName;
-    const { route, request } = held;
-    const abort = () => route.abort('blockedbyclient').catch(() => {});
-    const info = async () => this.#pageInfo(s).catch(() => null);
-    const site = (() => {
-      try {
-        return new URL(request.url()).host;
-      } catch {
-        return 'the site';
-      }
-    })();
-    // Botons' own words for a request it didn't send, and the way on: the owner takes over and does that step.
-    const paused = (what: string, why: string) =>
-      `Botons paused a request ${site} tried to send (${what}): not sent, because ${why}. Nothing reached the site. If ${owner} can do this step in the page, call browser_handoff so they can take over.`;
-    const revision = s.revision;
-    const binding: Binding = { botId, tokenId, session: s.id, revision };
-    let read: HeldRequest | { why: string };
-    let heldJar: Cookie[] = [];
-    try {
-      read = await this.#readHeld(botId, s, request, start, (jar) => (heldJar = jar));
-    } catch {
-      await abort();
-      return { outcome: 'refused', message: "The page's request could not be read, so it was not sent.", page: await info() };
-    }
-    if ('why' in read) {
-      await abort();
-      return { outcome: 'refused', message: paused(`${request.method().toUpperCase()} ${displayUrl(request.url())}`, read.why), page: await info() };
-    }
-    const req = read;
-    const where = `${req.method} ${displayUrl(req.url)}`;
-    const key = fingerprint(binding, req);
-    const card = describeRequest(req, `the ${shown(what)}`, key);
-    if ('why' in card) {
-      await abort();
-      return { outcome: 'refused', message: paused(where, card.why), page: await info() };
-    }
-    const waitUntil = new Date(Date.now() + this.#deps.cfg.approvalWaitMs).toISOString();
-    let approvalId: string;
-    try {
-      approvalId = this.#deps.approvals.browserRequest(botId, { ...card, input: { method: req.method, url: displayUrl(req.url), request: key.slice(0, 16) }, key, waitUntil }).id;
-    } catch (err) {
-      await abort();
-      return { outcome: 'refused', message: paused(where, `no card could be made (${(err as Error).message})`), page: await info() };
-    }
-    this.#journal(botId, { action: 'blocked', url: displayUrl(req.url), outcome: 'refused', detail: `${req.method} held for ${owner}'s card ${approvalId}` });
-
-    // The wait: the owner's decision, the card's time running out, or the browser closing (the turn's end, Stop).
-    const waiting = new Promise<'decided' | 'time' | 'closed'>((resolve) => {
-      const finish = (why: 'decided' | 'time' | 'closed') => {
-        clearTimeout(timer);
-        this.#waits.delete(approvalId);
-        s.endWait = null;
-        resolve(why);
-      };
-      const timer = setTimeout(() => finish('time'), Math.max(0, Date.parse(waitUntil) - Date.now()));
-      this.#waits.set(approvalId, () => finish('decided'));
-      s.endWait = () => finish('closed');
-      if (s.closed) finish('closed');
-    });
-    await this.testGate?.('card', botId);
-    const ended = await waiting;
-    const result = (outcome: 'done' | 'refused', message: string, delivery: 'sent' | 'not-sent' | 'unknown', page: BrowserActionResult['page']): BrowserActionResult => {
-      const a = this.#deps.approvals.find(approvalId);
-      return { outcome, message, page, approval: { id: approvalId, status: a?.status ?? 'cancelled', delivery } };
-    };
-    if (ended !== 'decided') this.#deps.approvals.endBrowserWait(approvalId, ended);
-    const a = this.#deps.approvals.get(approvalId);
-    if (a.status !== 'allowed') {
-      await abort();
-      const note = a.note ? ` ${owner}'s note: ${a.note}` : '';
-      const message =
-        a.status === 'denied'
-          ? `${owner} denied sending ${where} (card ${approvalId}).${note} It was not sent. Don't send it another way.`
-          : `Not sent: ${ended === 'time' ? `${owner} didn't decide in time` : ended === 'closed' ? 'the browser closed' : 'the card was withdrawn'} (card ${approvalId}).`;
-      this.#journal(botId, { action: 'blocked', url: displayUrl(req.url), outcome: 'refused', detail: `${req.method} not sent: card ${approvalId} ${a.status}` });
-      return result('refused', message, 'not-sent', await info());
-    }
-
-    // Allowed: checked again right before it goes (this turn, this browser, this document, its site, the request, its
-    // cookies still ones the browser held), then spent once. What goes is the card's request, byte for byte.
-    const live = () =>
-      this.#turns.get(botId) !== tokenId || !this.enabled(botId)
-        ? 'the browser was turned off or the turn ended'
-        : s.closed || this.#sessions.get(botId) === undefined
-          ? 'the browser closed'
-          : s.revision !== revision
-            ? 'the page changed while the card waited'
-            : !judgeRequest(req.url, 'GET', this.sites(botId)).ok
-              ? `${displayUrl(req.url)} is no longer one of the allowed sites`
-              : null;
-    // Read again with the jar as it is now: a site's own cookie churn is fine, a different request is not.
-    let again: HeldRequest | { why: string } | null = null;
-    try {
-      // Against what the browser held as the step began and as the card was made: a later change of the site's own
-      // cookies doesn't take back what it held then.
-      again = await this.#readHeld(botId, s, request, start && [...start, ...heldJar]);
-    } catch {}
-    const problem =
-      live() ??
-      (!again
-        ? 'the request could not be read again'
-        : 'why' in again
-          ? `${again.why} any more (a sign-out, say): click again for a new card`
-          : sameRequest(req, again));
-    if (problem || !this.#deps.approvals.spendBrowser(approvalId, key)) {
-      await abort();
-      const why = problem ?? 'its card was already used';
-      this.#journal(botId, { action: 'blocked', url: displayUrl(req.url), outcome: 'refused', detail: `${req.method} allowed but not sent: ${why}` });
-      return result('refused', `${owner} allowed it, but it was not sent: ${why}.`, 'not-sent', await info());
-    }
-
-    // Sent from here, exactly as held (the headers and body it was bound to, no cookie added), through the browser's proxy.
-    const sending = new AbortController();
-    s.sending = sending;
-    const target = new URL(req.url);
-    const d = await sendHeld({
-      proxy: { port: s.proxy.port, ...s.proxy.passOnce(target.hostname.replace(/^\[|\]$/g, ''), portOf(target)) },
-      method: req.method,
-      url: req.url,
-      headers: wireHeaders(req),
-      body: req.body,
-      ready: live,
-      signal: sending.signal,
-      timeoutMs: ACTION_TIMEOUT_MS,
-      maxBody: ANSWER_MAX,
-      ca: this.testTrust?.cert,
-    }).finally(() => {
-      if (s.sending === sending) s.sending = null;
-    });
-    this.#deps.approvals.browserDelivered(approvalId, d.delivery);
-    log.info('browser request sent', { botId, approvalId, delivery: d.delivery, status: d.delivery === 'sent' ? d.status : undefined });
-    if (d.delivery === 'not-sent') {
-      await abort();
-      this.#journal(botId, { action: 'sent', url: displayUrl(req.url), outcome: 'refused', detail: `${req.method} allowed on card ${approvalId}; not sent: ${d.why}` });
-      return result('refused', `${owner} allowed it, but it was not sent: ${d.why}. Nothing reached the site.`, 'not-sent', await info());
-    }
-    if (d.delivery === 'unknown') {
-      await route.abort('failed').catch(() => {});
-      this.#journal(botId, { action: 'sent', url: displayUrl(req.url), outcome: 'refused', detail: `${req.method} allowed on card ${approvalId}; delivery unknown: ${d.why}` });
-      return result(
-        'refused',
-        `${owner} allowed it and it was sent, but ${d.why}: it may have reached ${new URL(req.url).host} and been acted on. Don't send it again or another way: tell ${owner}, who can check on the site.`,
-        'unknown',
-        await info(),
-      );
-    }
-    const status = d.status;
-    const location = d.headers.find(([k]) => k === 'location')?.[1];
-    // A redirect is never followed from here: a 307 or 308 would send it again, and anything else would be a request
-    // from the page acted on. Its address is said, to open if wanted (in a new browser, as a read).
-    let next: string | null = null;
-    if (status >= 300 && status < 400 && location) {
-      try {
-        next = new URL(location, req.url).href;
-      } catch {}
-    }
-    const resends = !!next && (status === 307 || status === 308);
-    let answered = false;
-    if (!next && d.body) {
-      try {
-        const answer = answerOf(d.status, d.headers, d.body);
-        await route.fulfill(answer);
-        answered = true;
-      } catch {}
-    }
-    if (!answered) await abort();
-    await s.page.waitForLoadState('domcontentloaded', { timeout: 10_000 }).catch(() => {});
-    this.#journal(botId, { action: 'sent', url: displayUrl(req.url), outcome: 'done', detail: `${req.method} sent once (HTTP ${status}), allowed on card ${approvalId}` });
-    const onward = next && judgeRequest(next, 'GET', this.sites(botId)).ok ? ` It points to ${displayUrl(next)}: open that address to see where it led.` : '';
-    const tail = resends
-      ? `The site answered with a redirect that would send it again, which the browser did not follow.${onward}`
-      : next
-        ? `The site answered with a redirect, which the browser did not follow from the page it acted on.${onward}`
-        : answered
-        ? 'Use read to see the page.'
-        : 'Its answer was cut, too large or could not be read, so the page did not get it.';
-    return result('done', `${owner} allowed it on a card: sent ${where} once (HTTP ${status}). ${tail}`, 'sent', await info());
-  }
-
-  /** Loads an address in the page, or in a new browser if the page was acted on (so that page sends nothing more). */
+  /** Loads an address within the allowed sites. */
   async #open(botId: string, s: Session, url: string, doneText: string): Promise<BrowserActionResult> {
-    if (s.actedOn) {
-      // Closed meanwhile (the turn ended, Stop): no new browser is started for it.
-      if (s.closed || !this.#turns.has(botId) || !this.enabled(botId) || this.#handovers.has(botId)) return { outcome: 'refused', message: 'The browser closed.', page: null };
-      const starting = this.#replace(botId, s);
-      s = await starting;
-      if (this.#sessions.get(botId) !== starting || s.closed) return { outcome: 'refused', message: 'The browser closed.', page: null };
-    }
     // The main frame's last navigation request: where it ended after any redirect, failed or answered.
     const seen: { nav: Request | null } = { nav: null };
     const onRequest = (r: Request) => {
@@ -1785,15 +1390,8 @@ export class Browser implements BrowserHolds {
         return this.#open(botId, s, u.href, 'Opened');
       }
       case 'back': {
-        if (!s.actedOn) {
-          await s.page.goBack({ waitUntil: 'domcontentloaded', timeout: ACTION_TIMEOUT_MS });
-          return done('Went back. Use read to see the page.');
-        }
-        // From a page acted on, the address before it, in a new browser: the old page's script never runs again.
-        s.trail.pop();
-        const before = s.trail.pop();
-        if (!before || !judgeRequest(before, 'GET', sites).ok) return { outcome: 'refused', message: 'There is no page to go back to: open an address instead.', page: await this.#pageInfo(s) };
-        return this.#open(botId, s, before, 'Went back to the page before, in a new browser');
+        await s.page.goBack({ waitUntil: 'domcontentloaded', timeout: ACTION_TIMEOUT_MS });
+        return done('Went back. Use read to see the page.');
       }
       case 'read': {
         const text = ((await s.page.locator('body').innerText({ timeout: 10_000 }).catch(() => '')) ?? '').replace(/\n{3,}/g, '\n\n');
@@ -1821,6 +1419,7 @@ export class Browser implements BrowserHolds {
         const found = await this.#control(s, input.ref);
         if (typeof found === 'string') return { outcome: 'refused', message: found, page: await this.#pageInfo(s) };
         const { control, locator } = found;
+        if (action === 'click') s.privateDownload?.intent(s.page.url());
         const what = `${control.kind} ${JSON.stringify(control.label || control.name || '(no label)')}`;
         // A link to an allowed site: its address is opened, as open would, without the page's script for the click.
         if (action === 'click' && control.tag === 'a' && /^https?:/.test(control.href) && judgeRequest(control.href, 'GET', sites).ok) {
@@ -1836,9 +1435,9 @@ export class Browser implements BrowserHolds {
             return { outcome: 'refused', message: 'Not typed: the text has control characters (or a new line, in a one-line field).', page: await this.#pageInfo(s) };
           }
           // fill() puts the text in and presses nothing: no Enter, so typing alone never submits a form.
-          return this.#operate(botId, tokenId, s, what, () => locator.fill(text, { timeout: ACTION_TIMEOUT_MS }), `Typed into the ${what}.`);
+          return this.#operate(s, () => locator.fill(text, { timeout: ACTION_TIMEOUT_MS }), `Typed into the ${what}.`);
         }
-        return this.#operate(botId, tokenId, s, what, () => locator.click({ timeout: ACTION_TIMEOUT_MS, noWaitAfter: true }), `Clicked the ${what}.`);
+        return this.#operate(s, () => locator.click({ timeout: ACTION_TIMEOUT_MS, noWaitAfter: true }), `Clicked the ${what}.`);
       }
       case 'screenshot': {
         const bot = this.#deps.store.getBot(botId);
@@ -1880,37 +1479,12 @@ function describeControl(el: Element): Omit<Control, 'index'> {
 /** What must stay the same for a ref to still name its control. */
 const sameControl = (c: Omit<Control, 'index'>) => JSON.stringify([c.tag, c.type, c.name, c.id, c.autocomplete, c.label, c.kind, c.href]);
 
-/** Each new document of the page's main frame: refs and cards from before no longer apply, and its address is kept for back. */
+/** A new main document invalidates the controls from the last read. */
 function watchPage(s: Session, page: Page): void {
   page.on('framenavigated', (f) => {
     if (s.page !== page || f !== page.mainFrame()) return;
     s.revision++;
-    const url = f.url();
-    if (/^https?:/.test(url) && s.trail.at(-1) !== url) s.trail.push(url);
-    if (s.trail.length > 50) s.trail.shift();
   });
-}
-
-/** An allowed request's answer, for the page: decoded (it was asked for as Chromium asked), its framing headers dropped. */
-function answerOf(status: number, raw: [string, string][], body: Buffer): { status: number; headers: Record<string, string>; body: Buffer } {
-  const headers: Record<string, string> = {};
-  for (const [k, v] of raw) headers[k] = k in headers ? `${headers[k]}\n${v}` : v;
-  let out = body;
-  const enc = (headers['content-encoding'] ?? '').trim().toLowerCase();
-  const decode: Record<string, (b: Buffer) => Buffer> = {
-    gzip: (b) => gunzipSync(b, { maxOutputLength: ANSWER_MAX }),
-    'x-gzip': (b) => gunzipSync(b, { maxOutputLength: ANSWER_MAX }),
-    deflate: (b) => inflateSync(b, { maxOutputLength: ANSWER_MAX }),
-    br: (b) => brotliDecompressSync(b, { maxOutputLength: ANSWER_MAX }),
-    zstd: (b) => zstdDecompressSync(b, { maxOutputLength: ANSWER_MAX }),
-  };
-  if (enc && enc !== 'identity') {
-    const d = decode[enc];
-    if (!d) throw new Error(`an answer in ${enc}`);
-    out = d(body);
-  }
-  for (const k of ['content-encoding', 'content-length', 'transfer-encoding', 'connection', 'keep-alive']) delete headers[k];
-  return { status, headers, body: out };
 }
 
 /** The controls of the page's main document, as read lists them: shown and enabled ones, at most MAX_CONTROLS. */
@@ -2035,7 +1609,7 @@ function headfulAgent(pw: Playwright, executable: string, sandbox: boolean): Pro
 
 /**
  * Starts Chromium on `profile` with every guard the managed browser has: its own proxy (browser-proxy.ts), routing
- * that lets only reads to the policy's sites leave, no WebSockets, one tab, dialogs dismissed, downloads and file
+ * that allows HTTP requests only to the policy's sites, no WebSockets, one tab, dialogs dismissed, downloads and file
  * pickers refused, service workers blocked, QUIC and direct WebRTC UDP off, and Chromium's sandbox unless the
  * operator turned it off. The server's turns and `npm run check:browser` both start it this way.
  */
@@ -2050,13 +1624,7 @@ export async function openGuarded(
     /** A refusal: by the proxy, or by the routing (with the request it refused). */
     note: (url: string, why: string, request?: Request) => void;
     onDownload?: (url: string) => void;
-    /**
-     * Each request to an allowed site that is a read or a write a card could send (`write`): `pass` loads a read,
-     * `held` keeps it for a card (neither sent nor refused yet), `send` lets a write go (only the owner's handover,
-     * right after the owner's own input), a reason refuses it, null leaves it to the default (reads load, writes are
-     * refused).
-     */
-    gate?: (route: Route, request: Request, write: boolean) => 'pass' | 'held' | 'send' | string | null;
+    privateDownload?: BrowserKeyDownload | null;
     /** The page's size (the owner's handover clicks in these coordinates). */
     viewport?: { width: number; height: number };
     /** Tests only: the certificate of their own HTTPS site, which the proxy then accepts (besides the system's roots). */
@@ -2066,7 +1634,7 @@ export async function openGuarded(
     /** A site its proxy could not reach (not found, no address answered): never said as a block. */
     onUnreachable?: (url: string, message: string) => void;
   },
-): Promise<{ context: Context; page: Page; proxy: BrowserProxy }> {
+): Promise<{ context: Context; page: Page; proxy: BrowserProxy; privateDownload: BrowserKeyDownload | null }> {
   const note = o.note;
   // Its own home beside the profile, and only the environment it needs: none of the server's settings or secrets.
   const home = join(dirname(profile), 'home');
@@ -2094,7 +1662,8 @@ export async function openGuarded(
       chromiumSandbox: o.sandbox,
       // Loopback too: Chromium would otherwise reach this computer's own services without the proxy.
       proxy: proxySetting,
-      acceptDownloads: false,
+      acceptDownloads: !!o.privateDownload,
+      ...(o.privateDownload ? { downloadsPath: o.privateDownload.staging } : {}),
       serviceWorkers: 'block',
       viewport: o.viewport ?? { width: 1280, height: 800 },
       args: [
@@ -2116,6 +1685,7 @@ export async function openGuarded(
       ],
     });
   } catch (err) {
+    o.privateDownload?.close();
     await proxy.close();
     throw err;
   }
@@ -2123,31 +1693,39 @@ export async function openGuarded(
     await context.route('**/*', (route, request) => {
       const p = o.policy();
       const v = p.enabled ? judgeRequest(request.url(), request.method(), p.sites) : { ok: false as const, why: 'the browser is turned off' };
-      const write = !v.ok && 'write' in v && !!v.write;
-      const g = (v.ok || write) && o.gate ? o.gate(route, request, write) : null;
-      if (g === 'held') return;
-      if (write && g === 'send') return route.continue();
-      if (v.ok && (g === null || g === 'pass')) return route.continue();
-      note(request.url(), g && g !== 'pass' ? g : (v as { why: string }).why, request);
+      if (v.ok) return route.continue();
+      note(request.url(), v.why, request);
       return route.abort('blockedbyclient');
     });
     // A WebSocket sends whatever a page likes, so none connects: each is closed here, before the server sees it.
     await context.routeWebSocket(
       () => true,
       (ws) => {
-        note(ws.url(), 'WebSockets are not for this browser: it only reads pages');
+        note(ws.url(), 'WebSockets are not supported by this browser');
         void ws.close({ code: 1008, reason: 'Blocked by Botons' }).catch(() => {});
       },
     );
     const guard = (page: Page) => {
       page.on('dialog', (d) => void d.dismiss().catch(() => {}));
       page.on('download', (d) => {
-        o.onDownload?.(d.url());
-        void d.cancel().catch(() => {});
+        if (o.privateDownload) {
+          void o.privateDownload.capture(d, page.url()).then(result => {
+            if (result === 'refused') o.onDownload?.(d.url());
+          }).catch(() => {});
+        } else {
+          o.onDownload?.(d.url());
+          void d.cancel().catch(() => {});
+        }
       });
       page.on('filechooser', () => note(page.url(), 'the page asked for a file to upload, which the browser never gives'));
     };
     const current = context.pages()[0] ?? (await context.newPage());
+    if (o.privateDownload) {
+      // Keep credential-download responses out of the persistent profile's HTTP cache.
+      const network = await context.newCDPSession(current);
+      await network.send('Network.enable');
+      await network.send('Network.setCacheDisabled', { cacheDisabled: true });
+    }
     context.on('page', (p) => {
       if (p === current) return;
       // One tab: another (a popup, target=_blank) is closed, and said so.
@@ -2155,10 +1733,11 @@ export async function openGuarded(
       void p.close().catch(() => {});
     });
     guard(current);
-    context.on('close', () => void proxy.close());
-    return { context, page: current, proxy };
+    context.on('close', () => { o.privateDownload?.close(); void proxy.close(); });
+    return { context, page: current, proxy, privateDownload: o.privateDownload ?? null };
   } catch (err) {
     await context.close().catch(() => {});
+    o.privateDownload?.close();
     await proxy.close();
     throw err;
   }

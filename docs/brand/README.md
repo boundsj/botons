@@ -1,6 +1,6 @@
 # Botons brand board
 
-**Bring your own AI.** Botons (said like "buttons") are small, always-on helpers drawn as little button-bots: a round, pill or keycap body, a lit face on a dark display, and swappable parts. They have no brains of their own; the owner gives them one by connecting Claude, Codex or an API key. The brand is electric and a bit playful, and it stays calm where the work happens. People trust Botons with their computer and their keys.
+**Bring your own AI.** Botons (said like "buttons") are small, always-on helpers drawn as little button-bots: a body from a family of silhouettes (a round button, a pill, a keycap, a tower, a stack, an arcade button, a nut, a cog, a puff, a saucer), a lit face on a dark display, and swappable parts. They have no brains of their own; the owner gives them one by connecting Claude, Codex or an API key. The brand is electric and a bit playful, and it stays calm where the work happens. People trust Botons with their computer and their keys.
 
 This folder holds the board. `board/index.html` is the live board (open it through any static server, for example `python3 -m http.server -d docs/brand/board`), and `node docs/brand/board/capture.ts` rewrites the images in `img/` from it and fails if a contrast target is missed. Nothing in the app imports these files; the app's renderer and tokens are drawn from the chosen direction.
 
@@ -11,8 +11,8 @@ This folder holds the board. `board/index.html` is the live board (open it throu
 | | Chosen | Options |
 | --- | --- | --- |
 | Character | **A · Lit**: a colored button shell with a little depth, a dark glass display with the face lit on it, and a thin rim of light, with detail levels by size | B · Neon line (outline only), C · Soft toy (matte, LCD face, no glow) |
-| Logo | **A · Boton and wordmark**: a rounded monoline "botons" beside the brand Boton. The Boton alone is the app icon, the favicon and the sidebar mark | B · Face o, C · The button |
-| Palette | Dark first: blue-black neutrals, Boton cyan for the primary action, focus and the active row; a light theme on white with a deeper cyan for text | |
+| Logo | **A · Boton and wordmark**: a rounded monoline "botons" beside the brand Boton. The Boton alone is the sidebar mark; the app icon and the favicon are a Boton as a keycap | B · Face o, C · The button |
+| Palette | Dark first: blue-black neutrals, Boton cyan for the primary action, focus and the active row; a light theme on white with a deeper cyan for text; ultra black, the dark theme on true black | |
 | Type | System UI stack, heavier display settings, monospace for short uppercase labels, a drawn wordmark (no web fonts) | |
 | Name | **Botons** for the product and the plural, **a Boton** for one | |
 
@@ -49,7 +49,7 @@ Each direction shows the same eight Botons and parts, on dark and light, at 16, 
 | Error | The face turns red, worried brows, a wobbly mouth, a red "×" marker | The error marker and message |
 | No brain | Display dark, eyes closed, a standby light, "z" | "No brain yet" |
 
-Detail drops away by size, like optical sizes in type. At 28 px and under, a Boton keeps its silhouette, rim light, eyes, mouth, top and state cue, and loses halos, ears, visor, panel and cheeks.
+Detail drops away by size, like optical sizes in type. At 28 px and under, a Boton keeps its silhouette, rim light, eyes, mouth, top, feet and state cue, and loses halos, ears, visor, panel and cheeks.
 
 ### Part sheet (A)
 
@@ -59,21 +59,22 @@ The builder and the parts model stay as they are: each part is one of a fixed se
 
 | Part | Choices |
 | --- | --- |
-| Shape | Round, Pill, Key |
+| Shape (the body) | Round, Pill, Key, Tower, Stack, Arcade, Nut, Cog, Puff, Saucer |
 | Shell | Snow, Steel, Graphite, Sun, Signal, Cobalt, Violet, Teal |
 | Glow | Cyan, Pink, Lime, Amber, Violet, Ice |
-| Eyes | Dots, Rings, Bars, Happy, Wink, Lidded |
+| Eyes | Dots, Rings, Bars, Happy, Wink, Lidded, One eye, Stars, Hearts, Pixels |
 | Brows | None, Soft, Straight, Arched, Bold |
-| Mouth | Smile, Grin, Smirk, Oh, Calm, Wave |
-| Top | None, Antenna, Twin, Dish, Coil, Fin, Beacon, Halo |
-| Ears | None, Bolts, Pods, Fins, Knobs |
-| Visor | None, Goggles, Monocle, Band |
-| Panel | None, Button holes, Grill, Lights, Dial, Switch |
-| Arms | None, Nubs, Wave, Cheer |
+| Mouth | Smile, Grin, Smirk, Oh, Calm, Wave, Tongue, Teeth |
+| Top | None, Antenna, Twin, Dish, Coil, Crest, Beacon, Halo, Propeller, Crown, Sprout |
+| Ears | None, Bolts, Pods, Fins (cooling slats), Knobs, Cat, Bear |
+| Visor | None, Goggles, Monocle, Band, Shades |
+| Panel | None, Button holes, Grill, Lights, Dial, Switch, Heart, Bolt |
+| Arms | None, Nubs, Wave, Cheer, Claws, Noodles (every arm ends in a hand or a claw) |
+| Feet | None, Legs, Wheel, Treads, Hover, Spring (with feet, the rest is drawn a little smaller to make room) |
 | Backdrop | Mist, Ice, Mint, Lilac, Blush, Night, Plum, Grid |
 | Cheeks | On, Off |
 
-Over 1.5 billion combinations, from about 70 small drawings. The parts and characters are original; no names, marks or likenesses of any existing robot or character appear in the product.
+Over 300 billion combinations, from about a hundred small drawings, and a dozen presets to start from (Classic, Rover, Sprout, Moonbeam, Tinkerer, Daydream, Arcade, Lighthouse, Sparkle, Nutty, Cool cat, Teddy). The bodies and feet vary the silhouette, so a crowd of Botons never reads as one shape repeated: no part is a blade or a fin, and arms hang at the sides with hands. The parts and characters are original; no names, marks or likenesses of any existing robot or character appear in the product.
 
 ### Earlier looks become Botons
 
@@ -115,7 +116,9 @@ No web fonts. The interface keeps the system UI stack (Inter where installed); s
 
 ![Logo options](img/logos.png)
 
-The wordmark is a rounded monoline drawn with strokes. The recommended logo, A, pairs it with the brand Boton (round, snow shell, cyan face, lit antenna), which also serves as the sidebar mark, the app icon (lit up over a light-cycle floor) and the favicon (a button, a dark display and two lit eyes, made for 16 px).
+The wordmark is a rounded monoline drawn with strokes. The recommended logo, A, pairs it with the brand Boton (round, snow shell, cyan face, lit antenna), which also serves as the sidebar mark.
+
+The app icon is a Boton as a chunky keycap seen from a little above, its face the key's legend lit on a glass inset and a lime status light in the corner, on electric violet. The favicon is the same keycap made for 16 px. Both are drawn in `shared/brand.ts`: `node scripts/icons.ts --png` writes the web app's icons (the maskable ones keep the key inside the circle any mask keeps), all from that one drawing.
 
 ## Voice and copy
 

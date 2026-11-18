@@ -81,6 +81,8 @@ test('asking posts a card and a push; taking it over and handing it back move th
   assert.equal(card()?.state, 'requested');
   assert.equal(pushes.length, 1);
   assert.match(pushes[0].detail, /Your turn in Kevin's browser/);
+  assert.equal(pushes[0].messageId, message.id, 'the push opens the card');
+  assert.equal(pushes[0].approvalId, undefined, 'a handoff is not an approval');
   assert.throws(() => handoffs.request(bot.id, '', null, null), /reason/);
 
   handoffs.taken(bot.id, 'Phone');

@@ -61,6 +61,8 @@ export interface FakeOAuthMcp {
     pageSize: number;
     /** tools/list echoes the bearer token back: in a JSON-RPC error, or as a tool's name. */
     reflectToken: null | 'error' | 'tool';
+    /** The metadata names this authorization endpoint (a browser-facing page in front of /as/authorize) instead of its own. */
+    authorizationEndpoint: string | null;
   };
   events: FeedEvent[];
   attention: Record<string, unknown>[];
@@ -138,6 +140,7 @@ export async function fakeOAuthMcp(port: number): Promise<FakeOAuthMcp> {
       issSupported: true,
       pageSize: 50,
       reflectToken: null,
+      authorizationEndpoint: null,
     },
     events: [],
     attention: [],
@@ -264,7 +267,7 @@ export async function fakeOAuthMcp(port: number): Promise<FakeOAuthMcp> {
     if (url.pathname === '/.well-known/oauth-authorization-server/as') {
       return json(res, 200, {
         issuer: fake.opts.asIssuer ?? issuer,
-        authorization_endpoint: `${issuer}/authorize`,
+        authorization_endpoint: fake.opts.authorizationEndpoint ?? `${issuer}/authorize`,
         token_endpoint: `${issuer}/token`,
         registration_endpoint: `${issuer}/register`,
         code_challenge_methods_supported: fake.opts.s256 ? ['S256'] : ['plain'],

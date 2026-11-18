@@ -1,9 +1,9 @@
 import { cliTurn } from './cli-turn.ts';
 import { earlierEnvNames } from '../../../shared/legacy-names.mjs';
 import { cliHome, prepareCliHomes } from '../cli-homes.ts';
-import { closeSync, fstatSync, openSync, readdirSync, readFileSync, readSync } from 'node:fs';
+import { chmodSync, closeSync, constants, copyFileSync, fstatSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, readSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join, relative } from 'node:path';
 import type { ModelEfforts } from '../../../shared/effort.ts';
 import type { ProviderModel, TurnStep } from '../../../shared/types.ts';
 import { instructionPaths } from '../instructions.ts';
@@ -338,6 +338,33 @@ function findRollout(home: string, threadId: string): string | null {
   return null;
 }
 
+/**
+ * A thread Codex started in another home (Botons' own BOTONS_HOME/cli/codex, or the account home while that one was in
+ * use) is copied into `home` before it is resumed, at the same place under sessions/, so the Boton keeps its whole
+ * conversation: Codex finds a thread by its rollout file. The original stays where it was, and nothing is overwritten.
+ */
+export function carryRollout(threadId: string, home: string, from: string[]): 'here' | 'copied' | 'missing' {
+  if (findRollout(home, threadId)) return 'here';
+  for (const other of from) {
+    if (other === home) continue;
+    const source = findRollout(other, threadId);
+    if (!source) continue;
+    try {
+      if (!lstatSync(source).isFile()) continue;
+      const target = join(home, 'sessions', relative(join(other, 'sessions'), source));
+      mkdirSync(dirname(target), { recursive: true, mode: 0o700 });
+      copyFileSync(source, target, constants.COPYFILE_EXCL);
+      chmodSync(target, 0o600);
+      log.info("copied a Codex conversation into the Codex home Botons uses, so its Boton resumes it", { threadId });
+      return 'copied';
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'EEXIST') return 'here';
+      log.warn('could not copy a Codex conversation into the Codex home Botons uses; the turn starts a new one if Codex cannot find it', { threadId, err });
+    }
+  }
+  return 'missing';
+}
+
 const ROLLOUT_TAILS = [256 * 1024, 4 * 1024 * 1024, 32 * 1024 * 1024];
 
 /** The model a turn ran on (`codex exec --json` doesn't say) and its tokens. `needStart`: read back to the turn's start. */
@@ -410,7 +437,7 @@ export class CodexCliProvider implements Provider {
   /** Botons' own copy (managed-clis.ts), not the system's. */
   #managed: boolean;
 
-  /** `home`: where Codex keeps its rollouts; CODEX_HOME, else ~/.codex. */
+  /** `home`: where Codex keeps its rollouts; by default the Codex home Botons sets for the turn (cli-homes.ts). */
   constructor(bin: string, home?: string, managed = false) {
     this.#bin = bin;
     this.#home = home;
@@ -477,6 +504,10 @@ export class CodexCliProvider implements Provider {
 
     const mcp = codexMcp(req.mcpServers ?? []);
     const snapshot = cliTurn(req, 'codex', mcp.env);
+    if (req.sessionId) {
+      const homes = cliHome('codex');
+      carryRollout(req.sessionId, this.#home ?? snapshot.env.CODEX_HOME!, [homes.personal, homes.isolated]);
+    }
     const run = await runJsonl(this.#bin, codexArgs(snapshot.req, mcp.args), {
       cwd: req.cwd,
       groupDir: req.groupDir,

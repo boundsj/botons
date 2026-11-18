@@ -1,0 +1,37 @@
+{
+  "item": {
+    "teamId": "team_atlas",
+    "detail": "",
+    "attempts": 1,
+    "nudges": 0,
+    "lifetime": {
+      "attempts": 1,
+      "checkins": 0,
+      "escalations": 0
+    },
+    "held": null,
+    "blockedReason": null,
+    "blockedNeed": null,
+    "result": null,
+    "closedReason": null,
+    "closedBy": null,
+    "waiting": "running",
+    "evidence": [],
+    "escalation": null,
+    "version": 3,
+    "createdBy": "bot_kevin",
+    "createdAt": "2026-11-16T09:05:00.000Z",
+    "closedAt": null,
+    "id": "item_schema",
+    "title": "Map the export to the new schema",
+    "status": "working",
+    "assigneeBotId": "bot_stuart",
+    "assigneeName": "Stuart",
+    "gen": 1,
+    "threadId": "thr_schema",
+    "nextCheckAt": "2026-11-16T11:00:00.000Z",
+    "lastActivityAt": "2026-11-16T10:20:00.000Z",
+    "updatedAt": "2026-11-16T10:20:00.000Z"
+  },
+  "duplicate": false
+}

@@ -17,6 +17,8 @@ export const PNG_ICONS: Record<string, number> = {
   'icon-192.png': 192,
   'icon-512.png': 512,
 };
+/** The manifest's maskable icons: the key drawn inside the circle any mask keeps. */
+export const MASKABLE: ReadonlySet<string> = new Set(['icon-192.png', 'icon-512.png']);
 
 if (import.meta.main) {
   const dir = join(import.meta.dirname, '../web/public');
@@ -27,8 +29,8 @@ if (import.meta.main) {
     const browser = await chromium.launch();
     try {
       const page = await browser.newPage({ deviceScaleFactor: 1 });
-      const svg = appIconSvg({ rounded: false });
       for (const [name, px] of Object.entries(PNG_ICONS)) {
+        const svg = appIconSvg({ rounded: false, safe: MASKABLE.has(name) });
         await page.setViewportSize({ width: px, height: px });
         await page.setContent(`<style>html,body{margin:0}svg{display:block}</style>${svg.replace('<svg ', `<svg width="${px}" height="${px}" `)}`);
         await page.screenshot({ path: join(dir, name), clip: { x: 0, y: 0, width: px, height: px } });

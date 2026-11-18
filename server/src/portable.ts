@@ -81,14 +81,14 @@ import { nowIso } from './util.ts';
 
 export const PORTABLE_FORMAT = 'botons-config';
 /** This server writes and reads this version; older ones are upgraded by UPGRADES first. */
-export const PORTABLE_VERSION = 5;
+export const PORTABLE_VERSION = 6;
 /** The import routes' body limit: the file and the choices. */
 export const PORTABLE_MAX_BYTES = 16 * 1024 * 1024;
 /**
  * How this server turns a file into a plan, in the preview's fingerprint: a preview made by a server that planned
  * differently (another release, mid-upgrade) is refused at import and shown again, never applied as it now reads.
  */
-const PLAN_REVISION = 'plan-6';
+const PLAN_REVISION = 'plan-7';
 
 /**
  * Each entry turns a file of version n into version n + 1, as data (never code from the file). A version this
@@ -152,9 +152,16 @@ const UPGRADES: Record<number, (file: Record<string, unknown>) => Record<string,
   4: (f) => {
     const Boton = (v: unknown, where: string) => {
       const tater = parseTater(obj(v, where, TATER_KEYS));
-      return tater ? lookFromTater(tater) : bad(where, 'is not a look this server draws');
+      if (!tater) return bad(where, 'is not a look this server draws');
+      const { feet: _, ...version5 } = lookFromTater(tater);
+      return version5;
     };
     return { ...f, version: 5, ...eachLook(f, Boton) };
+  },
+  // Version 6 added a look's feet. A version-5 look stands on nothing.
+  5: (f) => {
+    const standing = (v: unknown, where: string) => ({ ...obj(v, where, LOOK_KEYS_5), feet: 'none' });
+    return { ...f, version: 6, ...eachLook(f, standing) };
   },
 };
 
@@ -676,7 +683,9 @@ function routine(v: unknown, where: string, botonZone: string): PortableRoutine 
   };
 }
 
-const LOOK_KEYS = ['shape', 'shell', 'glow', 'eyes', 'brows', 'mouth', 'top', 'ears', 'visor', 'panel', 'arms', 'backdrop', 'cheeks'] as const;
+const LOOK_KEYS = ['shape', 'shell', 'glow', 'eyes', 'brows', 'mouth', 'top', 'ears', 'visor', 'panel', 'arms', 'feet', 'backdrop', 'cheeks'] as const;
+/** A look's fields at version 5, before feet. */
+const LOOK_KEYS_5 = LOOK_KEYS.filter((k) => k !== 'feet');
 /** A look's fields at version 4 (a tater look), which the upgrade to 5 maps to its closest Boton. */
 const TATER_KEYS = ['shape', 'toast', 'eyes', 'brows', 'mouth', 'hat', 'glasses', 'extra', 'arms', 'wear', 'backdrop', 'cheeks'] as const;
 /** A look's fields at version 3 and before (a Critter), which the upgrade to 4 maps to its closest tater look. */

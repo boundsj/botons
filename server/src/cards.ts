@@ -9,7 +9,7 @@ import {
   parseCard,
   type TranscriptCard,
 } from '../../shared/cards.ts';
-import type { ApprovalOrigin, Message } from '../../shared/types.ts';
+import type { ApprovalOrigin, Message, MessageMeta } from '../../shared/types.ts';
 import type { Audit } from './audit.ts';
 import type { Principal } from './auth.ts';
 import { formatDuration, parseDuration } from './config.ts';
@@ -59,6 +59,8 @@ export class Cards {
   #origin: (botId: string) => ApprovalOrigin | null;
   /** In memory: a restart resets it. */
   #limiter = new RunLimiter(POSTS_PER_HOUR, Number.MAX_SAFE_INTEGER);
+  /** In the answer's transaction: a server card's owner (Teams' escalations) hears it was answered. */
+  onAnswered: ((botId: string, cardId: string, principal: Principal | null) => void) | null = null;
 
   constructor(opts: { store: Store; connectors: Connectors; audit: Audit; wake: (botId: string) => void; origin: (botId: string) => ApprovalOrigin | null }) {
     this.#store = opts.store;
@@ -153,6 +155,29 @@ export class Cards {
     return { message, duplicate: false };
   }
 
+  /**
+   * A card the server itself writes in a Boton's chat (a team escalation): checked like a Boton's, never counted
+   * against the Boton's own limits, and answered like any other.
+   */
+  postServer(botId: string, raw: unknown, ttlMs: number, about: Pick<MessageMeta, 'teamId' | 'teamName' | 'itemId' | 'itemTitle'> = {}): Message {
+    let descriptor: CardDescriptor;
+    try {
+      descriptor = parseCard(raw);
+    } catch (err) {
+      return bad(err);
+    }
+    const card: TranscriptCard = {
+      descriptor,
+      status: interactiveBlock(descriptor) ? 'pending' : 'shown',
+      expiresAt: new Date(Date.now() + ttlMs).toISOString(),
+      from: { trigger: 'chat', routineId: null, routineName: null, runId: null, sandboxed: false },
+    };
+    // What it is about (a team's item), so the apps can link it: ids and names the server set, never the card's text.
+    const message = this.#store.addMessage(botId, 'event', `Posted a card: ${descriptor.title}`, { kind: 'card.posted', card, ...about });
+    log.info('server card posted', { botId, cardId: message.id });
+    return message;
+  }
+
   /** The owner's answer (the route takes only paired devices). Returns the card's message as it is now. */
   answer(botId: string, id: string, input: unknown, principal: Principal | null): Message {
     const m = this.get(id, botId);
@@ -206,6 +231,7 @@ export class Cards {
         this.#store.addMessage(botId, 'user', answerText(card.descriptor, record), { kind: 'card.answered', cardId: id }, true);
       }
       this.#audited(principal, m, card, answer.action, record.result ?? status, record);
+      this.onAnswered?.(botId, id, principal);
       return { closed };
     });
     if ('problem' in done) {

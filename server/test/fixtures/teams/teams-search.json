@@ -1,0 +1,14 @@
+[
+  {
+    "threadId": "thr_schema",
+    "messageId": "tmsg_reply",
+    "seq": 31,
+    "teamId": "team_atlas",
+    "itemId": "item_schema",
+    "subject": "Map the export to the new schema",
+    "from": "Stuart",
+    "to": "Kevin",
+    "snippet": "…Mapped 14 of 20 tables; the rest need the key.",
+    "at": "2026-11-16T10:20:00.000Z"
+  }
+]

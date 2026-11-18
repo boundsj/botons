@@ -1,7 +1,7 @@
 import { installCommand } from '../../../shared/install-commands.ts';
 import { type ReactNode, useContext, useEffect, useRef, useState } from 'react';
 import { formatSize } from '../../../shared/files.ts';
-import type { BackupSummary, BrainProblem, DatabaseProblem, OperationsBrain, OperationsStatus, PushProblem, PushStatus, RehearsalProblem, RestoreRehearsal, StorageStatus } from '../../../shared/types.ts';
+import type { ApnsStatus, BackupSummary, BrainProblem, DatabaseProblem, OperationsBrain, OperationsStatus, PushProblem, PushStatus, RehearsalProblem, RestoreRehearsal, StorageStatus } from '../../../shared/types.ts';
 import { buildSha, versionNumber } from '../../../shared/util.ts';
 import { api } from '../api.ts';
 import { useStore } from '../state.ts';
@@ -241,6 +241,39 @@ function pushText(p: PushStatus): ReactNode {
   return lastLine;
 }
 
+/** Pushes to the native app: Apple's push service answers with fixed words, so this names where to look without any error text. */
+const APNS_PROBLEM: Record<PushProblem, string> = {
+  refused: "Apple's push service refused it (403) or the key file could not be read: check the key, its key id and team id in the server's settings",
+  rejected: "Apple's push service rejected it: check the app's bundle id and that the app's build matches its environment",
+  redirected: "Apple's push service answered with a redirect",
+  'server-error': "Apple's push service had a problem (5xx): try again later",
+  unreachable: "this server could not reach Apple's push service: check the server's network",
+  timeout: "Apple's push service did not answer within 10 seconds: try again later",
+};
+
+export function apnsOk(a: ApnsStatus | undefined): boolean {
+  return !a || !a.last || a.last.ok;
+}
+
+function apnsText(a: ApnsStatus): ReactNode {
+  const when = (at: string) => (
+    <time dateTime={at} title={dateTime(at)}>
+      {relative(at)}
+    </time>
+  );
+  const devices = a.devices === 0 ? 'no device has registered yet' : `${a.devices} ${a.devices === 1 ? 'device' : 'devices'} registered`;
+  const last = a.last;
+  if (!last) return `${devices}; none sent since the server started`;
+  if (last.ok) return <>{devices}; last push went through {when(last.at)}</>;
+  return (
+    <>
+      {devices}; the last push failed {when(last.at)}
+      {a.failuresInARow > 1 && ` (${a.failuresInARow} in a row)`}: {last.problem ? APNS_PROBLEM[last.problem] : 'see Server events below'}
+      {a.lastSuccessAt ? <>. The last one that went through was {when(a.lastSuccessAt)}</> : '. None has gone through since the server started'}
+    </>
+  );
+}
+
 function storageText(st: StorageStatus): ReactNode {
   if (st.unreadable) return `free space could not be read; the database is ${formatSize(st.databaseBytes)}`;
   const pct = Math.round((st.freeBytes / st.totalBytes) * 100);
@@ -271,6 +304,7 @@ export function diagnostics(data: OperationsStatus, version: string | null): str
     `Accepting work: ${details.draining ? 'no (draining)' : 'yes'}`,
     `Backups: ${b.unreadable ? 'folder unreadable' : `${b.total} kept, newest ${b.backups[0]?.createdAt ?? 'none'}${b.stale ? ' (stale)' : ''}${b.partial ? `, ${b.partial} partial` : ''}`}`,
     `Push: ${p.state}${p.last ? `, last ${p.last.ok ? 'ok' : `failed (${p.last.problem ?? 'unknown'}${p.last.status ? `, HTTP ${p.last.status}` : ''})`} ${p.last.at}` : `, none ${p.sinceSettingsChange ? 'since its settings changed' : 'since start'}`}${p.failuresInARow > 1 ? `, ${p.failuresInARow} failures in a row` : ''}`,
+    ...(p.apns ? [`App push: ${p.apns.devices} registered${p.apns.last ? `, last ${p.apns.last.ok ? 'ok' : `failed (${p.apns.last.problem ?? 'unknown'}${p.apns.last.status ? `, HTTP ${p.apns.last.status}` : ''})`} ${p.apns.last.at}` : ', none since start'}${p.apns.failuresInARow > 1 ? `, ${p.apns.failuresInARow} failures in a row` : ''}`] : []),
     `Disk: ${st.unreadable ? 'unreadable' : `${formatSize(st.freeBytes)} free of ${formatSize(st.totalBytes)}${st.low ? ' (LOW)' : ''}`}, database ${formatSize(st.databaseBytes)}`,
     `Restores schemas: ${(data.restorableSchemas ?? []).filter((v) => Number.isSafeInteger(v) && v > 0).join(', ') || 'unknown'}`,
     `Restore rehearsal: ${rehearsalLine(data.rehearsal?.last ?? null)}`,
@@ -477,6 +511,11 @@ function Status({ data, onReload, version }: { data: OperationsStatus; onReload:
             </>
           )}
         </Check>
+        {data.push.apns && (
+          <Check ok={apnsOk(data.push.apns)} label="Push to the app">
+            {apnsText(data.push.apns)}
+          </Check>
+        )}
         <Check ok={!data.storage.low && !data.storage.unreadable} label="Disk space">
           {storageText(data.storage)}
         </Check>

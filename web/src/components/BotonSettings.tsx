@@ -8,6 +8,7 @@ import { addPending, changed, changeText, cleanSite, type LivePatch, overlay, ty
 import { answerWebAccess, suggestsWebAccess, unavailableLine, WEB_ACCESS_QUESTION, webAccessAnswered, withAnySite } from '../browser-access.ts';
 import { pendingFor } from '../skills.ts';
 import { actions, useStore } from '../state.ts';
+import { teamsHash } from '../teams.ts';
 import { clip, cx, isValidTimezone, relative, timezones } from '../util.ts';
 import { BotonAvatar } from './Avatar.tsx';
 import { EffortField } from './BotFields.tsx';
@@ -195,6 +196,10 @@ export function SettingsTab({ bot, onDeleted, onOpenBot, onTab }: { bot: Bot; on
       <Section title="Usage and spending">
         <LinkRow label="Usage" value="Tokens and runs" onClick={() => onTab('usage')} />
         <Spending bot={bot} apiBrain={brain?.kind === 'api' && bot.provider !== 'mock'} />
+      </Section>
+
+      <Section title="Teams">
+        <TeamRows bot={bot} />
       </Section>
 
       <Section title="Manage">
@@ -795,6 +800,24 @@ function CapRow({ name, label, help, value, onSave }: { name: string; label: str
 }
 
 // ——— Manage
+
+/** Its seats: each team with its role there, opening the team; none, and Teams is where one is made. */
+function TeamRows({ bot }: { bot: Bot }) {
+  const seats = bot.teams ?? [];
+  if (!seats.length) return <LinkRow label="Not in a team" value="Teams" onClick={() => (location.hash = teamsHash({ view: 'list' }))} />;
+  return (
+    <>
+      {seats.map((t) => (
+        <LinkRow
+          key={t.id}
+          label={t.name}
+          value={[t.role === 'lead' ? 'Lead' : 'Member', t.roleTitle].filter(Boolean).join(' · ')}
+          onClick={() => (location.hash = teamsHash({ view: 'team', teamId: t.id, tab: 'team' }))}
+        />
+      ))}
+    </>
+  );
+}
 
 function ManageRows({ bot, onDeleted, onOpenBot }: { bot: Bot; onDeleted: () => void; onOpenBot: (id: string) => void }) {
   const primary = useStore((s) => s.settings?.primaryBotId ?? null);

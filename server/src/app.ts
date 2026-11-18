@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { buildRouter, VERSION } from './api.ts';
 import { ApiKeys, type ApiKeysOptions } from './api-keys.ts';
+import { ApnsSender, PushDevices } from './apns.ts';
 import { Approvals } from './approvals.ts';
 import { Cards } from './cards.ts';
 import { Reactions } from './reactions.ts';
@@ -40,6 +41,8 @@ import { startScheduler } from './scheduler.ts';
 import { Setup } from './setup.ts';
 import { Skills } from './skills.ts';
 import { StarterGate } from './starter-gate.ts';
+import { Teams } from './teams.ts';
+import { startTeamSupervisor, type TeamSupervisor } from './team-supervisor.ts';
 import { HttpError, Store } from './store.ts';
 import { WorkFeed } from './work-feed.ts';
 import { Trash, type TrashHooks } from './trash.ts';
@@ -53,6 +56,9 @@ export interface App {
   approvals: Approvals;
   cards: Cards;
   reactions: Reactions;
+  teams: Teams;
+  /** Started by listen(). */
+  teamSupervisor: TeamSupervisor | null;
   browser: Browser;
   oauth: OAuthConnections;
   workFeed: WorkFeed;
@@ -67,6 +73,7 @@ export interface App {
   apiKeys: ApiKeys;
   spending: Spending;
   trash: Trash;
+  pushDevices: PushDevices;
   listen(): Promise<Server[]>;
   /** Running turns get `drainMs` (default 0) to finish; the rest are stopped and left for the next process. */
   close(opts?: { drainMs?: number }): Promise<{ interrupted: number }>;
@@ -124,6 +131,10 @@ interface AppOptions {
   trashHooks?: TrashHooks;
   /** Production entrypoint enables external release checks; fixtures stay offline. */
   releaseChecks?: boolean;
+  /** Tests only: a plain-HTTP/2 loopback origin Apple's push hosts are replaced by (apns.ts). Set in code, never from a setting. */
+  apns?: { testOrigin?: string };
+  /** Tests only: the clock Teams and its supervisor go by (they move it on by hours). */
+  teamClock?: () => number;
   /** In-code fixture runners only; never configured through HTTP or environment. */
   cliInstaller?: Pick<InstallOptions, 'root' | 'node' | 'run' | 'verify'>;
 }
@@ -164,7 +175,14 @@ export function createApp(cfg: Config, lock: DataDirLock = lockDataDir(cfg.home)
   const setup = new Setup(store.db, cfg, () => store.getSettings().ownerName);
   engine.auth = auth;
   // Read per push: the public URL follows the tailnet.
-  const notifier = new Notifier({ config: () => store.ntfyConfig(), publicUrl: () => cfg.publicUrl });
+  // Push to the native app exists only with the BOTONS_APNS_* settings; without them nothing here is made.
+  const pushDevices = new PushDevices(store.db);
+  const apnsSender = cfg.apns ? new ApnsSender({ config: cfg.apns, testOrigin: opts.apns?.testOrigin }) : null;
+  const notifier = new Notifier({
+    config: () => store.ntfyConfig(),
+    publicUrl: () => cfg.publicUrl,
+    apns: apnsSender ? { sender: apnsSender, devices: pushDevices, preview: () => store.pushPreview() } : null,
+  });
   engine.notifier = notifier;
   const approvals = new Approvals({
     store,
@@ -175,6 +193,24 @@ export function createApp(cfg: Config, lock: DataDirLock = lockDataDir(cfg.home)
     access: (botId) => engine.turnAccess(botId),
     waitMs: cfg.approvalWaitMs,
   });
+  // The one transport between Botons, and their teams (teams.ts).
+  const teams = new Teams({ store, audit, asksPerPairPerHour: cfg.asksPerPairPerHour, asksPerHour: cfg.asksPerHour, clock: opts.teamClock });
+  teams.host = {
+    wake: (botId) => engine.queueChat(botId),
+    turn: engine.teamTurn,
+    chip: engine.teamChip,
+    statusOf: engine.statusOf,
+    usageLimitUntil: (provider) => engine.usageLimit(provider)?.until ?? null,
+    push: (req) => void notifier.push(req).catch((err) => log.warn('could not send a team push', { err })),
+    stopTeamTurns: engine.stopTeamTurns,
+    // Set once the cards exist (below).
+    postCard: () => {
+      throw new Error('cards are not ready');
+    },
+  };
+  engine.teams = teams;
+  store.botTeams = (botId) => teams.botTeams(botId);
+  store.beforeBotDeleted = (botId) => teams.botDeleted(botId);
   approvals.skills = skills;
   approvals.connectors = connectors;
   skills.approvals = approvals;
@@ -183,7 +219,6 @@ export function createApp(cfg: Config, lock: DataDirLock = lockDataDir(cfg.home)
   const browser = new Browser({
     cfg,
     store,
-    approvals,
     usesConnectors: (provider) => drivesBrowser(providers.get(provider)),
     turnAccess: (botId) => engine.turnAccess(botId),
     share: (botId, path, title) => engine.shareFile(botId, path, title),
@@ -194,7 +229,6 @@ export function createApp(cfg: Config, lock: DataDirLock = lockDataDir(cfg.home)
   engine.browser = browser;
   // A handover never outlives the server: a handoff taken when it stopped was handed back by the stop.
   handoffs.recover();
-  approvals.browser = browser;
   // The built-in browser connector; whether this server has a Chromium is found once, at start.
   connectors.browser = { server: () => browser.server(), unavailable: () => browser.known?.why ?? null };
   void browser.availability().then((a) => {
@@ -223,6 +257,8 @@ export function createApp(cfg: Config, lock: DataDirLock = lockDataDir(cfg.home)
   const callbacks = new Callbacks(cfg.callbacks, store, hub);
   const rehearsals = new RestoreRehearsals({ db: store.db, audit, home: cfg.home, backupsDir: cfg.backupsDir, version: VERSION, build: cfg.build, ...opts.rehearsal });
   const cards = new Cards({ store, connectors, audit, wake: (botId) => engine.queueChat(botId), origin: (botId) => engine.turnOrigin(botId) });
+  cards.onAnswered = (botId, cardId, principal) => teams.ownerAnswered(botId, cardId, principal);
+  teams.host.postCard = (botId, card, ttlMs, about) => cards.postServer(botId, card, ttlMs, about);
   const apiKeys = new ApiKeys({ db: store.db, hub, env: opts.apiKeys?.env ?? process.env, testEndpoints: opts.apiKeys?.testEndpoints, timeoutMs: opts.apiKeys?.timeoutMs });
   const reactions = new Reactions({ store, wake: (botId) => engine.queueChat(botId) });
   engine.reactions = reactions;
@@ -245,7 +281,7 @@ export function createApp(cfg: Config, lock: DataDirLock = lockDataDir(cfg.home)
   });
   // The server's trash; nothing a delete takes may hold these folders.
   const trash = new Trash({ home: cfg.home, store, audit, sharedDir: cfg.sharedDir, hooks: opts.trashHooks, protectedDirs: [cfg.home, cfg.workspacesDir, cfg.sharedDir, cfg.templatesDir, cfg.skillPackagesDir, cfg.backupsDir], now: opts.storageClock });
-  const router = buildRouter({ cfg, store, engine, hub, providers, auth, health, connectors, skills, approvals, cards, reactions, browser, oauth, audit, setup, callbacks, recentLogs, rehearsals, apiKeys, brainLogin, starterGate, spending, releases, cliInstaller, trash });
+  const router = buildRouter({ cfg, store, engine, hub, providers, auth, health, connectors, skills, approvals, cards, reactions, browser, oauth, audit, setup, callbacks, recentLogs, rehearsals, apiKeys, brainLogin, starterGate, spending, releases, cliInstaller, trash, pushDevices, teams });
 
   // Recomputed when the server starts listening on its Tailscale address.
   let allowedHosts = allowedHostNames(cfg);
@@ -325,7 +361,7 @@ export function createApp(cfg: Config, lock: DataDirLock = lockDataDir(cfg.home)
       await handle(req, res);
     } catch (err) {
       try {
-        if (err instanceof HttpError) return sendJson(res, err.status, { error: err.message }, err.headers);
+        if (err instanceof HttpError) return sendJson(res, err.status, { error: err.message, ...(err.code ? { code: err.code } : {}) }, err.headers);
         // Path only: the query can carry a webhook's ?key= secret.
         log.error('request failed', { method: req.method, path: (req.url ?? '/').split(/[?#]/, 1)[0], err });
         sendJson(res, 500, { error: err instanceof Error ? err.message : 'Internal error' });
@@ -357,6 +393,7 @@ export function createApp(cfg: Config, lock: DataDirLock = lockDataDir(cfg.home)
   let servers: Server[] = [];
   let hookServers: Server[] = [];
   let stopScheduler: (() => void) | null = null;
+  let teamSupervisor: TeamSupervisor | null = null;
   let stopTailnet: (() => void) | null = null;
 
   /**
@@ -454,12 +491,17 @@ export function createApp(cfg: Config, lock: DataDirLock = lockDataDir(cfg.home)
 
   return {
     store,
+    pushDevices,
     engine,
     connectors,
     skills,
     approvals,
     cards,
     reactions,
+    teams,
+    get teamSupervisor() {
+      return teamSupervisor;
+    },
     browser,
     oauth,
     workFeed,
@@ -500,6 +542,8 @@ export function createApp(cfg: Config, lock: DataDirLock = lockDataDir(cfg.home)
       engine.pushInterrupted(store.failInterruptedRuns());
       engine.noteCutOffTurns(store.endInterruptedTurns());
       engine.giveUpCutOffChats();
+      // Before the engine: what is lost is closed and what is queued dispatched, so the chats it resumes hold them.
+      teams.resume();
       engine.resume();
       callbacks.resumePending();
       stopScheduler = startScheduler(store, engine, cfg.schedulerIntervalMs, () => {
@@ -517,6 +561,7 @@ export function createApp(cfg: Config, lock: DataDirLock = lockDataDir(cfg.home)
           log.error('could not check OAuth keep-alive', { err });
         }
       });
+      teamSupervisor = startTeamSupervisor({ teams, intervalMs: cfg.teamSupervisorMs });
       workFeed.start();
       return servers;
     },
@@ -528,6 +573,7 @@ export function createApp(cfg: Config, lock: DataDirLock = lockDataDir(cfg.home)
       await rehearsals.close();
       stopTailnet?.();
       stopScheduler?.();
+      teamSupervisor?.stop();
       const { interrupted } = await engine.drain(opts.drainMs ?? 0);
       await browser.closeAll();
       callbacks.stop();
@@ -537,6 +583,7 @@ export function createApp(cfg: Config, lock: DataDirLock = lockDataDir(cfg.home)
       hub.endStreams();
       await settle(open, 2000);
       await closeServers([...servers, ...hookServers]);
+      apnsSender?.close();
       store.db.close();
       recentLogs.stop();
       lock.release();

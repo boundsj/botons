@@ -12,7 +12,7 @@ afterEach(() => {
   s.mock.script = null;
 });
 
-const LOOK = { shape: 'key', shell: 'violet', glow: 'pink', eyes: 'happy', brows: 'soft', mouth: 'grin', top: 'none', ears: 'pods', visor: 'none', panel: 'dial', arms: 'nubs', backdrop: 'mint', cheeks: true } as const;
+const LOOK = { shape: 'key', shell: 'violet', glow: 'pink', eyes: 'happy', brows: 'soft', mouth: 'grin', top: 'none', ears: 'pods', visor: 'none', panel: 'dial', arms: 'nubs', feet: 'legs', backdrop: 'mint', cheeks: true } as const;
 const routinesOf = async (id: string) => (await call<Routine[]>('GET', `/api/bots/${id}/routines`)).data;
 const memoriesOf = async (id: string) => (await call<Memory[]>('GET', `/api/bots/${id}/memories`)).data;
 const duplicate = (id: string, body = {}) => call<Bot>('POST', `/api/bots/${id}/duplicate`, body);

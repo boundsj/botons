@@ -1,5 +1,5 @@
 import { type KeyboardEvent, useId, useMemo, useState } from 'react';
-import { describeLook, LOOK_LABELS, type Part, PARTS, randomLook } from '../../../shared/look.ts';
+import { describeLook, LOOK_LABELS, type LookPreset, type Part, PARTS, PRESETS, randomLook } from '../../../shared/look.ts';
 import { STATES } from '../../../shared/boton.ts';
 import type { AvatarState, BotonLook } from '../../../shared/types.ts';
 import { cx } from '../util.ts';
@@ -9,14 +9,17 @@ import { DiceIcon } from './Icons.tsx';
 /** The builder's names for the states, as the rest of the app says them. */
 export const STATE_NAMES: Record<AvatarState, string> = { idle: 'Idle', working: 'Thinking', approval: 'Needs you', error: 'Error', asleep: 'No brain' };
 
-type Tab = { id: string; label: string; parts: readonly (Part | 'cheeks')[] };
+type Tab = { id: string; label: string; parts: readonly (Part | 'cheeks' | 'presets')[] };
+/** Presets come first in the row; the builder opens on Body. */
 const TABS: readonly Tab[] = [
-  { id: 'body', label: 'Body', parts: ['shape', 'shell', 'glow'] },
+  { id: 'presets', label: 'Presets', parts: ['presets'] },
+  { id: 'body', label: 'Body', parts: ['shape', 'feet', 'shell', 'glow'] },
   { id: 'face', label: 'Face', parts: ['eyes', 'brows', 'mouth', 'cheeks'] },
   { id: 'parts', label: 'Parts', parts: ['top', 'ears', 'visor', 'panel'] },
   { id: 'scene', label: 'Pose', parts: ['arms', 'backdrop'] },
 ];
-const PART_NAMES: Record<Part | 'cheeks', string> = { shape: 'Shape', shell: 'Shell', glow: 'Glow', cheeks: 'Cheeks', eyes: 'Eyes', brows: 'Brows', mouth: 'Mouth', top: 'Top', ears: 'Ears', visor: 'Visor', panel: 'Panel', arms: 'Arms', backdrop: 'Backdrop' };
+const PART_NAMES: Record<Part | 'cheeks', string> = { shape: 'Shape', feet: 'Feet', shell: 'Shell', glow: 'Glow', cheeks: 'Cheeks', eyes: 'Eyes', brows: 'Brows', mouth: 'Mouth', top: 'Top', ears: 'Ears', visor: 'Visor', panel: 'Panel', arms: 'Arms', backdrop: 'Backdrop' };
+const sameLook = (a: BotonLook, b: BotonLook) => (Object.keys(PARTS) as Part[]).every((p) => a[p] === b[p]) && a.cheeks === b.cheeks;
 
 /** Arrow keys move through a row of choices and pick as they go, like native radio buttons; Home and End jump. */
 function rovingKeys<T>(e: KeyboardEvent<HTMLElement>, values: readonly T[], value: T, pick: (v: T) => void): void {
@@ -63,6 +66,38 @@ function PartPicker({ part, look, onPick }: { part: Part; look: BotonLook; onPic
   );
 }
 
+/** Whole looks to start from: picking one replaces the look, and every part can still be changed after. */
+function PresetPicker({ look, onPick }: { look: BotonLook; onPick: (l: BotonLook) => void }) {
+  const current = PRESETS.find((p) => sameLook(p.look, look)) ?? null;
+  // With no preset chosen, the first one is the group's tab stop.
+  const focusable = current ?? PRESETS[0];
+  const pick = (p: LookPreset) => onPick({ ...p.look });
+  return (
+    <div className="part-picker" role="radiogroup" aria-label="Presets">
+      <span className="field-label" aria-hidden="true">
+        Start from a preset
+      </span>
+      <div className="part-options presets">
+        {PRESETS.map((p) => (
+          <button
+            key={p.id}
+            type="button"
+            role="radio"
+            aria-checked={p === current}
+            tabIndex={p === focusable ? 0 : -1}
+            className={cx('part-option', p === current && 'on')}
+            onClick={() => pick(p)}
+            onKeyDown={(e) => rovingKeys(e, PRESETS, focusable, pick)}
+          >
+            <BotonAvatar look={p.look} size={52} still />
+            <span>{p.name}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function CheeksPicker({ look, onPick }: { look: BotonLook; onPick: (l: BotonLook) => void }) {
   const values = [true, false] as const;
   const pick = (cheeks: boolean) => onPick({ ...look, cheeks });
@@ -99,7 +134,7 @@ function CheeksPicker({ look, onPick }: { look: BotonLook; onPick: (l: BotonLook
  */
 export function BotonBuilder({ look, onChange, compact }: { look: BotonLook; onChange: (l: BotonLook) => void; compact?: boolean }) {
   const id = useId();
-  const [tab, setTab] = useState(TABS[0].id);
+  const [tab, setTab] = useState('body');
   const [state, setState] = useState<AvatarState>('idle');
   const active = TABS.find((t) => t.id === tab) ?? TABS[0];
   const description = useMemo(() => describeLook(look), [look]);
@@ -154,7 +189,9 @@ export function BotonBuilder({ look, onChange, compact }: { look: BotonLook; onC
           ))}
         </div>
         <div className="boton-panel" role="tabpanel" id={`${id}-panel`} aria-labelledby={`${id}-tab-${active.id}`}>
-          {active.parts.map((p) => (p === 'cheeks' ? <CheeksPicker key={p} look={look} onPick={onChange} /> : <PartPicker key={p} part={p} look={look} onPick={onChange} />))}
+          {active.parts.map((p) =>
+            p === 'presets' ? <PresetPicker key={p} look={look} onPick={onChange} /> : p === 'cheeks' ? <CheeksPicker key={p} look={look} onPick={onChange} /> : <PartPicker key={p} part={p} look={look} onPick={onChange} />,
+          )}
         </div>
       </div>
     </div>

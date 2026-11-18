@@ -28,6 +28,13 @@ import type {
   SetupStatus,
   UpdateSetupInput,
   Skill,
+  Team,
+  TeamDetail,
+  TeamItem,
+  TeamItemActionInput,
+  TeamItemActionResult,
+  TeamLimits,
+  TeamStateInput,
   UpdateBotRequest,
   UpdateSettingsInput,
 } from '../../shared/types.ts';
@@ -36,6 +43,7 @@ import { ApiError, api, whenUnauthorized } from './api.ts';
 import { mergeProviders } from './brains.ts';
 import { errorText } from './feedback.ts';
 import { appendNewer, arrivedAfter, keepUnchanged, mergeLatest, prependOlder, upsert } from './lists.ts';
+import { emptyTeams, mergeMessages, mergeTeams, putBoard, putItem, putThreads, rosterChanged, rosterInput, type TeamDraft, type TeamsSlice, teamsEvent, upsertTeam } from './teams.ts';
 
 /**
  * A window onto a chat's history, oldest first, never more than `history.window` messages (`history.kept` for a
@@ -54,7 +62,7 @@ interface MessageList {
   error: { message: string; retry: 'latest' | 'earlier' | 'later' } | null;
 }
 
-interface State {
+interface State extends TeamsSlice {
   ready: boolean;
   loadError: string | null;
   /** Set while this device is not paired. */
@@ -111,6 +119,7 @@ let state: State = {
   skills: null,
   apiKeys: null,
   approvals: {},
+  ...emptyTeams(),
 };
 
 const listeners = new Set<() => void>();
@@ -297,7 +306,39 @@ function apply(ev: ServerEvent) {
     case 'oauth.deleted':
       set((s) => (s.oauth ? { oauth: { ...s.oauth, connections: s.oauth.connections.filter((c) => c.id !== ev.id) } } : {}));
       break;
+    default: {
+      // Teams' events (web/src/teams.ts): what the page holds of them, and the badge.
+      const patch = teamsEvent(state, ev);
+      if (patch) set(patch);
+    }
   }
+}
+
+/** A team from an answer that may carry it alone or with its board. */
+const teamOf = (r: Team | TeamDetail): Team => ('items' in r && 'team' in r ? r.team : (r as Team));
+
+/** Teams may not be on the server yet (an older one): the badge then just stays empty. */
+const teamsAttention = () => api.teamsAttention().catch(() => null);
+
+const PAGE_THREADS = 50;
+const PAGE_THREAD_MESSAGES = 200;
+
+/** After a reconnect: what the page holds of Teams, read again (events sent meanwhile are lost). */
+async function refreshTeams() {
+  const s = state;
+  const attention = await teamsAttention();
+  set({ teamsAttention: attention });
+  const boards = Object.keys(s.teamBoards);
+  const lists = Object.keys(s.threadLists);
+  const threads = Object.keys(s.threadMessages);
+  const items = Object.keys(s.itemEvents);
+  await Promise.all([
+    ...(s.teams ? [actions.loadTeams()] : []),
+    ...boards.map((id) => actions.loadTeam(id)),
+    ...lists.map((scope) => actions.loadThreads(scope)),
+    ...threads.map((id) => actions.loadThreadMessages(id)),
+    ...items.map((id) => actions.loadTeamItem(id)),
+  ].map((p) => p.catch(() => {})));
 }
 
 /**
@@ -499,6 +540,7 @@ async function refresh() {
     ...Object.keys(s.routines).map((id) => reload('routines', id, api.routines)),
     ...Object.keys(s.runs).map((id) => reload('runs', id, api.runs)),
     ...Object.keys(s.memories).map((id) => reload('memories', id, api.memories)),
+    refreshTeams(),
   ]);
 }
 
@@ -644,8 +686,17 @@ export const actions = {
     try {
       if (!(await actions.checkAuth())) return;
       providersAt = Date.now();
-      const [info, settings, providers, bots, waiting, setup, sidebar] = await Promise.all([api.info(), api.settings(), api.providers(), api.bots(), api.approvals(), api.setup(), api.sidebar()]);
-      set({ info, settings, setup, providers, bots: fetchedBots(bots), sidebar, approvals: byId(waiting), ready: true, loadError: null });
+      const [info, settings, providers, bots, waiting, setup, sidebar, attention] = await Promise.all([
+        api.info(),
+        api.settings(),
+        api.providers(),
+        api.bots(),
+        api.approvals(),
+        api.setup(),
+        api.sidebar(),
+        teamsAttention(),
+      ]);
+      set({ info, settings, setup, providers, bots: fetchedBots(bots), sidebar, approvals: byId(waiting), teamsAttention: attention, ready: true, loadError: null });
       behind = false;
       startLive();
     } catch (e) {
@@ -1053,7 +1104,137 @@ export const actions = {
     await api.deleteMcpServer(name);
     await Promise.all([actions.loadMcpServers(), actions.loadConnectors()]);
   },
+
+  // ---------------------------------------------------------------- Teams
+
+  async loadTeams() {
+    const fetched = await api.teams();
+    set((s) => ({ teams: mergeTeams(s.teams, fetched) }));
+  },
+
+  async loadTeamsAttention() {
+    set({ teamsAttention: await teamsAttention() });
+  },
+
+  /** A team's board and newest events; the team itself is kept with the others. */
+  async loadTeam(id: string) {
+    try {
+      const d = await api.team(id);
+      set((s) => ({ teams: s.teams ? upsertTeam(s.teams, d.team) : [d.team], teamItems: putBoard(s.teamItems, id, d.items), teamBoards: { ...s.teamBoards, [id]: d.events } }));
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 404) teamGone(id);
+      throw e;
+    }
+  },
+
+  /** A team an answer brought, shown at once (its event follows). */
+  teamChanged(r: Team | TeamDetail): Team {
+    const team = teamOf(r);
+    set((s) => ({ teams: upsertTeam(s.teams ?? [], team) }));
+    if ('items' in r) set((s) => ({ teamItems: putBoard(s.teamItems, team.id, r.items), teamBoards: { ...s.teamBoards, [team.id]: r.events } }));
+    return team;
+  },
+
+  async loadTeamItem(id: string) {
+    const d = await api.teamItem(id);
+    set((s) => ({ teamItems: putItem(s.teamItems, d.item), itemEvents: { ...s.itemEvents, [id]: d.events } }));
+  },
+
+  /** An owner action on an item, with the version the page had (a stale one is refused with the server's words). */
+  async itemAction(item: TeamItem, input: Omit<TeamItemActionInput, 'version'>): Promise<TeamItemActionResult> {
+    const r = await api.teamItemAction(item.id, { ...input, version: item.version });
+    // Its history is read again by the screen showing it, as its version moved on.
+    set((s) => ({ teamItems: putItem(s.teamItems, r.item) }));
+    return r;
+  },
+
+  async addTeamItem(teamId: string, input: { title: string; detail?: string; assigneeBotId?: string | null; key?: string }) {
+    const r = await api.createTeamItem(teamId, input);
+    const item = 'item' in r ? r.item : r;
+    set((s) => ({ teamItems: putItem(s.teamItems, item) }));
+    return item;
+  },
+
+  async createTeam(d: TeamDraft): Promise<Team> {
+    return actions.teamChanged(await api.createTeam({ name: d.name.trim(), goal: d.goal.trim(), members: rosterInput(d) }));
+  },
+
+  /** Name and goal, then the whole roster, each only when it changed. */
+  async saveTeam(team: Team, d: TeamDraft): Promise<Team> {
+    let now = team;
+    if (d.name.trim() !== team.name || d.goal.trim() !== team.goal) {
+      now = actions.teamChanged(await api.updateTeam(team.id, { name: d.name.trim(), goal: d.goal.trim(), version: now.version }));
+    }
+    if (rosterChanged(team, d)) now = actions.teamChanged(await api.setTeamMembers(team.id, { members: rosterInput(d), version: now.version }));
+    return now;
+  },
+
+  async setTeamLimits(team: Team, limits: Partial<TeamLimits>) {
+    return actions.teamChanged(await api.updateTeam(team.id, { limits, version: team.version }));
+  },
+
+  async setTeamState(team: Team, input: Omit<TeamStateInput, 'version'>) {
+    return actions.teamChanged(await api.setTeamState(team.id, { ...input, version: team.version }));
+  },
+
+  async reviewTeam(team: Team) {
+    return actions.teamChanged(await api.reviewTeam(team.id));
+  },
+
+  async deleteTeam(team: Team) {
+    await api.deleteTeam(team.id);
+    apply({ type: 'team.deleted', teamId: team.id });
+  },
+
+  /** A page of conversations, newest first; `more`: the page after the ones shown. */
+  async loadThreads(scope: string, more = false) {
+    const shown = state.threadLists[scope]?.ids ?? [];
+    const oldest = more ? shown.map((id) => state.teamThreads[id]?.lastSeq ?? Infinity).reduce((a, b) => Math.min(a, b), Infinity) : undefined;
+    const page = await api.teamThreads({ team: scope === 'all' ? undefined : scope, before: oldest && Number.isFinite(oldest) ? oldest : undefined, limit: PAGE_THREADS });
+    set((s) => putThreads(s, scope, page, page.length === PAGE_THREADS, more));
+  },
+
+  /** A thread with its team and item, as the server has them now. */
+  async loadThread(id: string) {
+    const d = await api.teamThread(id);
+    set((s) => ({
+      teamThreads: { ...s.teamThreads, [id]: d.thread },
+      ...(d.team && { teams: s.teams ? upsertTeam(s.teams, d.team) : null }),
+      ...(d.item && { teamItems: putItem(s.teamItems, d.item) }),
+    }));
+    return d;
+  },
+
+  /** The newest messages of a thread, or (`earlier`) the page before the first shown. */
+  async loadThreadMessages(id: string, earlier = false) {
+    const cur = state.threadMessages[id];
+    const before = earlier && cur?.items.length ? cur.items[0]!.seq : undefined;
+    const page = await api.teamThreadMessages(id, before, PAGE_THREAD_MESSAGES);
+    set((s) => {
+      const now = s.threadMessages[id];
+      const items = mergeMessages(now?.items ?? [], page);
+      return { threadMessages: { ...s.threadMessages, [id]: { items, hasMore: earlier || !now ? page.length === PAGE_THREAD_MESSAGES : now.hasMore } } };
+    });
+  },
+
+  /** Shown read at once; the server's marker only moves forward, and its events bring the counts. */
+  markThreadRead(id: string, upTo: number) {
+    if (sentThreadReads.get(id) === upTo) return;
+    sentThreadReads.set(id, upTo);
+    set((s) => (s.teamThreads[id]?.unread ? { teamThreads: { ...s.teamThreads, [id]: { ...s.teamThreads[id]!, unread: false } } } : {}));
+    api.markThreadRead(id, upTo).catch((e) => {
+      if (sentThreadReads.get(id) === upTo) sentThreadReads.delete(id);
+      console.warn(`[Botons] could not mark thread ${id} read`, e);
+    });
+  },
 };
+
+const sentThreadReads = new Map<string, number>();
+
+/** A team the server no longer has: off the page. */
+function teamGone(id: string) {
+  apply({ type: 'team.deleted', teamId: id });
+}
 
 whenUnauthorized(() => {
   actions.checkAuth().catch(() => {});

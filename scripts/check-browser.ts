@@ -1,7 +1,7 @@
 // `npm run check:browser` (in Docker: `botons check-browser`): starts the managed browser the way a Boton's turn
 // does (server/src/browser.ts, openGuarded) on a temp profile, against a page this script serves on loopback, and
-// checks that it reads the page, takes a screenshot, and that nothing else gets out: a request to another loopback
-// port, a POST and a WebSocket to the allowed one. Touches no install: no data folder, no server, no network beyond
+// checks that it reads the page, takes a screenshot, and sends its page POST, while a request to another loopback
+// port and a WebSocket stay blocked. Touches no install: no data folder, no server, no network beyond
 // 127.0.0.1. Exit 0 when the browser works with every guard, 1 when it doesn't (and why).
 import { mkdtempSync, rmSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
@@ -61,10 +61,11 @@ async function main(): Promise<string[]> {
       if (text !== 'botons-browser-ok') problems.push(`the page read as ${JSON.stringify(text)}`);
       const png = await page.screenshot({ type: 'png' });
       if (png.subarray(1, 4).toString() !== 'PNG') problems.push('the screenshot is not a PNG');
-      const reached = site.hits.filter((h) => h !== 'GET /page' && !h.startsWith('GET /favicon'));
-      if (reached.length) problems.push(`the allowed site got more than reads of the page: ${reached.join(', ')}`);
+      const reached = site.hits.filter((h) => h !== 'GET /page' && h !== 'POST /post' && !h.startsWith('GET /favicon'));
+      if (!site.hits.includes('POST /post')) problems.push('the page POST did not reach its allowed site');
+      if (reached.length) problems.push(`the allowed site got unexpected requests: ${reached.join(', ')}`);
       if (other.hits.length) problems.push(`another loopback port was reached: ${other.hits.join(', ')}`);
-      if (blocked.length < 3) problems.push(`expected the fetch, the POST and the WebSocket to be blocked; blocked: ${blocked.join('; ') || 'nothing'}`);
+      if (blocked.length < 2) problems.push(`expected the other-site fetch and the WebSocket to be blocked; blocked: ${blocked.join('; ') || 'nothing'}`);
     } finally {
       await context.close();
     }
@@ -87,4 +88,4 @@ if (problems.length) {
   console.error(`The managed browser does not work here (${sandbox}):\n${problems.map((p) => `- ${p}`).join('\n')}`);
   process.exit(1);
 }
-console.log(`The managed browser works here (${sandbox}): it read a page and took a screenshot, and nothing else got out.`);
+console.log(`The managed browser works here (${sandbox}): it read a page and took a screenshot, its page POST reached the listed site and other network destinations stayed blocked.`);

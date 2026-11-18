@@ -23,7 +23,7 @@ export function BotonAvatar(props: {
   const still = props.still ?? size < 24;
   const uid = `av${useId().replace(/[^A-Za-z0-9_-]/g, '')}`;
   // The look's fields, not its identity: a store update that keeps the look keeps the markup.
-  const key = `${look.shape} ${look.shell} ${look.glow} ${look.eyes} ${look.brows} ${look.mouth} ${look.top} ${look.ears} ${look.visor} ${look.panel} ${look.arms} ${look.backdrop} ${look.cheeks}`;
+  const key = `${look.shape} ${look.shell} ${look.glow} ${look.eyes} ${look.brows} ${look.mouth} ${look.top} ${look.ears} ${look.visor} ${look.panel} ${look.arms} ${look.feet} ${look.backdrop} ${look.cheeks}`;
   const html = useMemo(() => botonInner(look, { size, state, uid, still }), [key, size, state, uid, still]);
   const h = hash32(seed);
   const style = { '--ph': ((h % 997) / 99.7).toFixed(2), '--blink': `${(5 + (h % 3001) / 1000).toFixed(2)}s` } as CSSProperties;

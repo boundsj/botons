@@ -450,6 +450,13 @@ test('a push is at most 200 characters, generic unless previews are on, and open
   assert.deepEqual(buildPush(req, false, 'http://host:7777/'), { title: 'Kevin', body: 'New notification.', click: 'http://host:7777/#/m/bot_abc', priority: 'high' });
   assert.equal(buildPush(req, true, 'http://host:7777').body.length, PUSH_TEXT_MAX);
   assert.equal(buildPush({ ...req, detail: '   ' }, true, 'http://host:7777').body, 'New notification.');
+  // A team's push opens its escalation card in the lead's chat, else the team; others the chat, even with a message.
+  const team = { ...req, reason: 'team' as const, teamId: 'team_a b', itemId: 'item_1' };
+  assert.equal(buildPush({ ...team, messageId: 'msg_card' }, false, 'http://host:7777').click, 'http://host:7777/#/m/bot_abc/msg_card');
+  assert.equal(buildPush(team, false, 'http://host:7777').click, 'http://host:7777/#/teams/team_a%20b');
+  assert.equal(buildPush({ ...team, bot: null }, false, 'http://host:7777').click, 'http://host:7777/#/teams/team_a%20b');
+  assert.equal(buildPush({ ...req, messageId: 'msg_x' }, false, 'http://host:7777').click, 'http://host:7777/#/m/bot_abc');
+  assert.equal(buildPush({ ...req, bot: null, reason: 'test' }, false, 'http://host:7777').click, 'http://host:7777/');
 
   // Off, or not set up: nothing is sent and nothing is returned.
   const cfg = { enabled: false, server: ntfyUrl, topic: 't', token: null, preview: false };

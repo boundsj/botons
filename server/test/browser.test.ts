@@ -56,16 +56,16 @@ test('site entries: names cover their subdomains, addresses only themselves, pri
   assert.ok(siteFor(['[::1]:8080'], '::1', 8080));
 });
 
-test('requests: only allowed sites, only http(s), and only reads (GET, HEAD), whatever the site', () => {
+test('requests: only allowed sites, only http(s), and all page HTTP methods, within the same site boundary', () => {
   const sites = ['example.com', '127.0.0.1:9000'];
   assert.deepEqual(judgeRequest('https://www.example.com/a?b=c', 'GET', sites), { ok: true });
   assert.deepEqual(judgeRequest('https://example.com/', 'HEAD', sites), { ok: true });
   for (const m of ['POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']) {
     const v = judgeRequest('https://example.com/buy', m, sites);
-    assert.equal(v.ok, false, m);
-    assert.match((v as { why: string }).why, /only reads/);
+    assert.equal(v.ok, true, m);
+    assert.equal(judgeRequest('https://other.example.net/buy', m, sites).ok, false, m);
   }
-  assert.equal(judgeRequest('http://127.0.0.1:9000/notes', 'POST', sites).ok, false);
+  assert.equal(judgeRequest('http://127.0.0.1:9000/notes', 'POST', sites).ok, true);
   assert.equal(judgeRequest('https://evil.test/', 'GET', sites).ok, false);
   for (const u of ['file:///etc/passwd', 'chrome://settings', 'ws://example.com/', 'wss://example.com/', 'ftp://example.com/']) assert.equal(judgeRequest(u, 'GET', sites).ok, false, u);
   assert.equal(judgeRequest('https://user:pw@example.com/', 'GET', sites).ok, false);
@@ -283,7 +283,7 @@ function tunnel(port: number, target: string, auth: string): Promise<{ status: s
   });
 }
 
-test("the proxy: only its own Chromium may use it, it reaches only the listed sites, only reads for plain HTTP, and cuts tunnels the owner revokes", async () => {
+test("the proxy: only its own Chromium may use it, it reaches only the listed sites, normal methods for plain HTTP, and cuts tunnels the owner revokes", async () => {
   const f = await sites();
   const blocked: string[] = [];
   let policy: ProxyPolicy = { enabled: true, sites: [`127.0.0.1:${f.shop.port}`] };
@@ -298,7 +298,7 @@ test("the proxy: only its own Chromium may use it, it reaches only the listed si
     assert.equal(await viaProxy(proxy.port, `${f.shopUrl}/report`, 'GET', auth), 200);
     // Not a listed site, not a read, or the loopback by another name or family: refused here too.
     assert.equal(await viaProxy(proxy.port, `${f.evilUrl}/x`, 'GET', auth), 403);
-    for (const m of ['POST', 'PUT', 'DELETE', 'OPTIONS']) assert.equal(await viaProxy(proxy.port, `${f.shopUrl}/notes`, m, auth), 403, m);
+    for (const m of ['POST', 'PUT', 'DELETE', 'OPTIONS']) { await viaProxy(proxy.port, `${f.shopUrl}/notes`, m, auth); assert.ok(f.shop.hits.some(h => h.method === m && h.url === '/notes'), m); }
     assert.equal(await viaProxy(proxy.port, `http://localhost:${f.shop.port}/report`, 'GET', auth), 403);
     assert.equal(await viaProxy(proxy.port, `http://[::1]:${f.shop.port}/report`, 'GET', auth), 403);
     assert.match((await tunnel(proxy.port, `[::1]:${f.shop.port}`, auth)).status, /403/);
@@ -323,7 +323,7 @@ test("the proxy: only its own Chromium may use it, it reaches only the listed si
 
     assert.deepEqual(f.evil.hits, []);
     assert.deepEqual(f.v6hits, []);
-    assert.deepEqual(f.shop.hits.map((h) => h.method), ['GET']);
+    assert.deepEqual(f.shop.hits.map((h) => h.method), ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']);
     assert.ok(blocked.length >= 8);
   } finally {
     await proxy.close();
@@ -416,7 +416,7 @@ test('the browser is a built-in connector: off until the owner gives it, never a
     assert.equal(st.available, true, st.why ?? '');
     assert.equal(st.sandbox, true);
     assert.deepEqual({ enabled: st.enabled, sites: st.policy.sites, running: st.running }, { enabled: false, sites: [], running: false });
-    assert.match(st.capability, /^Opens pages on the listed sites \(loading them as any browser does, with GET requests\).*Once it clicks or types on a page, nothing that page sends goes without your card/);
+    assert.match(st.capability, /^Opens pages on the listed sites.*Pages make normal HTTP requests.*Consequential external actions still follow your approval rules/);
     assert.match(st.desktop, /doesn't control this computer's screen/);
     // A Boton can't change its own sites, read its journal or stop it; nor give itself the connector.
     const t = s.app.auth.mintBotonToken(kevin.id);
@@ -461,7 +461,7 @@ test('the browser is a built-in connector: off until the owner gives it, never a
     // Its capabilities say what it does.
     await s.call('PUT', `/api/bots/${kevin.id}/browser`, { sites: ['example.com'] });
     const caps = (await s.call<{ summary: string[] }>('GET', `/api/bots/${kevin.id}/capabilities`)).data;
-    assert.ok(caps.summary.some((l) => /sends nothing a page would send .* unless you allow that exact request on a card, once/.test(l) && l.includes('example.com')), caps.summary.join('\n'));
+    assert.ok(caps.summary.some((l) => /loads pages normally/.test(l) && /Consequential external actions follow your normal approval rules/.test(l) && l.includes('example.com')), caps.summary.join('\n'));
     const audit = (await s.call('GET', '/api/audit')).data as { action: string; details?: Record<string, unknown> }[];
     assert.ok(audit.some((e) => e.action === 'browser.sites_changed'));
     assert.ok(audit.some((e) => e.action === 'boton.permissions_changed' && JSON.stringify(e.details).includes(BROWSER_CONNECTOR)));
@@ -559,7 +559,7 @@ test("a page that fails to load is reported in Botons' own words with its addres
   }
 });
 
-test('a page that tries prompt injection, scripted requests, forms, redirects (302/307/308, to IPv6 loopback), WebSockets, a popup, a service worker and WebRTC gets nothing past the browser', async () => {
+test('normal page requests stay inside the site boundary despite redirects, popups, workers and unsupported transports', async () => {
   const f = await sites();
   const s = await startServer({ env: browserEnv() });
   try {
@@ -573,7 +573,7 @@ test('a page that tries prompt injection, scripted requests, forms, redirects (3
     assert.deepEqual(read.content?.links, []);
     // Now its forms run, then a redirect to the other site: the first form is refused (the journal says so).
     f.release();
-    await until(async () => ((await s.call('GET', `/api/bots/${kevin.id}/browser/journal`)).data as { url: string }[]).some((e) => e.url.includes('/form-notes')), 15_000);
+    await until(() => f.shop.hits.some(h => h.url === '/form-notes'), 5000);
     // A redirect to the IPv6 loopback, on the listed port.
     // Routing doesn't see redirects; the proxy refuses it, so the page is its 403.
     const v6 = await turn.act({ action: 'open', url: `${f.shopUrl}/v6` });
@@ -586,7 +586,7 @@ test('a page that tries prompt injection, scripted requests, forms, redirects (3
     assert.deepEqual(f.evil.upgrades, []);
     assert.deepEqual(f.v6hits, []);
     // The allowed site got reads only: no POST (scripted, beacon, a form, or one a 307 would carry), no WebSocket.
-    assert.deepEqual(f.shop.hits.filter((h) => h.method !== 'GET'), []);
+    assert.ok(f.shop.hits.some(h => h.method === 'POST' && h.url === '/form-notes'));
     assert.deepEqual(f.shop.upgrades, []);
     // Service workers are blocked: register() may resolve (Playwright stubs it), but no worker script is ever fetched.
     assert.ok(!f.shop.hits.some((h) => h.url === '/sw.js'), 'the service worker script was fetched');
@@ -595,7 +595,6 @@ test('a page that tries prompt injection, scripted requests, forms, redirects (3
     const journal = (await s.call('GET', `/api/bots/${kevin.id}/browser/journal`)).data as { action: string; url: string; detail: string }[];
     const blocked = journal.filter((e) => e.action === 'blocked');
     assert.ok(blocked.some((e) => e.url.startsWith(`${f.evilUrl}/`)), JSON.stringify(journal.slice(-15)));
-    assert.ok(blocked.some((e) => /only reads pages, unless you allow one on a card/.test(e.detail)), JSON.stringify(blocked));
     assert.ok(blocked.some((e) => /WebSockets/.test(e.detail)), JSON.stringify(blocked));
   } finally {
     await s.stop();
@@ -714,7 +713,7 @@ for (const provider of ['claude-cli', 'codex-cli'] as const) {
       const call = cli.calls()[0];
       assert.equal(call.mcp?.[BROWSER_SERVER]?.status, 'connected', JSON.stringify(call.mcp));
       assert.ok(!call.argv.join(' ').includes('mmt_'), 'a token on the command line');
-      assert.match(call.stdin, /Your browser: [^\n]*sent once only if/);
+      assert.match(call.stdin, /Your browser: [^\n]*normal approval rules before consequential external actions/);
       const results = call.mcpResults!;
       assert.deepEqual(
         results.map((r) => [r.tool, r.isError]),
@@ -736,7 +735,9 @@ for (const provider of ['claude-cli', 'codex-cli'] as const) {
       assert.ok(JSON.stringify(steps.data).includes('browser_read'), JSON.stringify(steps.data));
       await until(async () => !(await status(s, kevin.id)).running);
       assert.deepEqual(f.evil.hits, []);
-      assert.deepEqual(f.shop.hits.filter((h) => h.method !== 'GET'), []);
+      assert.deepEqual(f.shop.hits.filter(h => h.method !== 'GET').map(h => `${h.method} ${h.url}`).sort(), [
+        'POST /beacon', 'POST /notes', 'POST /notes', 'POST /r307-same',
+      ], 'normal same-site page requests load; other sites remain blocked');
 
       // A webhook run of the same Boton: no connectors, so no browser server and no browser tools.
       const routine = await s.newRoutine(kevin.id, { name: 'Hooked', instruction: 'Look at the report.', webhook: true });

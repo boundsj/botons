@@ -7,8 +7,8 @@
 //   waving arm), stuck (a red marker), idle (a blink), next to the busy dot and badges it already had;
 // - avatars are decorative (aria-hidden), and the logo, favicon, app icon and manifest are served;
 // - Settings → "Animate Botons" pauses every avatar animation, and so does the system's reduced motion;
-// - the builder works by keyboard: tabs and choices are arrow-key radio groups whose focus follows the pick, the
-//   preview is named for its look and state, and Cancel keeps the saved look and gives focus back to the avatar;
+// - the builder works by keyboard: it opens on Body, tabs and choices are arrow-key radio groups whose focus follows
+//   the pick, the preview is named for its look and state, and Cancel keeps the saved look and gives focus back to the avatar;
 // - a new Boton's suggested name comes from the generic pool.
 // Exits 1 with what failed. `--out <dir>` saves screenshots (desktop, mobile, the editor).
 import { spawn } from 'node:child_process';
@@ -19,7 +19,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
-import { lookFor, parseLook } from '../shared/look.ts';
+import { LOOK_LABELS, lookFor, parseLook } from '../shared/look.ts';
 import type { Bot, BotonLook } from '../shared/types.ts';
 import { createApp } from '../server/src/app.ts';
 import { approvePairingRequest, createPairingRequest } from '../server/src/auth.ts';
@@ -278,7 +278,7 @@ async function main() {
   check(wren.shell === 'sun' && wren.top === 'beacon' && wren.backdrop === 'lilac', `Wren's sky capsule with combed hair became a sun Boton with a beacon (${wren.shell}, ${wren.top}, ${wren.backdrop})`);
   const preview = `document.querySelector('.boton-stage svg.avatar[role=img]')`;
   check(await evalIn(`${preview}?.getAttribute('aria-label').startsWith('Preview, idle: Sun')`), 'the preview is named for its state and look');
-  check(await evalIn(`document.querySelectorAll('.boton-builder [role=tab]').length === 4 && document.querySelectorAll('.boton-builder [role=tab][tabindex="0"]').length === 1`), 'four part tabs, one tab stop');
+  check(await evalIn(`[...document.querySelectorAll('.boton-builder [role=tab]')].map((t) => t.textContent).join() === 'Presets,Body,Face,Parts,Pose' && document.querySelectorAll('.boton-builder [role=tab][tabindex="0"]').length === 1 && document.querySelector('.boton-builder [role=tab][aria-selected=true]').textContent === 'Body'`), 'presets and four part tabs, one tab stop, open on Body');
   // A part by keyboard: the checked choice is the group's tab stop; an arrow picks the next and focus follows.
   const shape = `document.querySelector('.boton-builder [role=radiogroup][aria-label=Shape]')`;
   await evalIn(`${shape}.querySelector('[aria-checked=true]').focus(); document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true })); 0`);
@@ -299,7 +299,7 @@ async function main() {
   check(await evalIn(`document.activeElement?.getAttribute('aria-label') === 'Change look'`), 'Cancel closes the builder and focus goes back to the avatar');
   await evalIn(`document.querySelector('.boton-settings .set-avatar').click(); 0`);
   await waitFor(`${shape}?.querySelector('[aria-checked=true]')`);
-  check(await evalIn(`${shape}.querySelector('[aria-checked=true]').textContent === ${JSON.stringify({ round: 'Round', pill: 'Pill', key: 'Key' }[wren.shape])}`), 'Cancel kept the saved look');
+  check(await evalIn(`${shape}.querySelector('[aria-checked=true]').textContent === ${JSON.stringify(LOOK_LABELS.shape[wren.shape])}`), 'Cancel kept the saved look');
   await evalIn(`[...document.querySelectorAll('dialog[open] .form-actions button')].find((x) => x.textContent.trim() === 'Cancel').click(); 0`);
 
   // 5. A new Boton's placeholder name, and the phone layout.

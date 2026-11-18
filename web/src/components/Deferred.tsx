@@ -1,5 +1,5 @@
 import { type ReactNode, useEffect, useState } from 'react';
-import { CloseIcon } from './Icons.tsx';
+import { BackIcon, CloseIcon } from './Icons.tsx';
 import { Dialog } from './Dialog.tsx';
 
 /**
@@ -110,6 +110,23 @@ export function DeferredPanel<M>(props: { part: Deferred<M>; label: string; onCl
         <div className="tab-body">{failed ? <DeferredError what="the panel" onRetry={retry} /> : <Loading />}</div>
       </div>
     </aside>
+  );
+}
+
+/** A screen in the main column, where a chat goes (Teams), while its code loads. */
+export function DeferredMain<M>(props: { part: Deferred<M>; label: string; onBack: () => void; children: (m: M) => ReactNode }) {
+  const { mod, failed, retry } = useDeferred(props.part);
+  if (mod) return props.children(mod);
+  return (
+    <main className="teams-main" aria-label={props.label}>
+      <header className="teams-header">
+        <button type="button" className="icon-btn round mobile-only" aria-label="Back to Botons" onClick={props.onBack}>
+          <BackIcon />
+        </button>
+        <h1 className="teams-title">{props.label}</h1>
+      </header>
+      <div className="teams-scroll">{failed ? <DeferredError what={props.label} onRetry={retry} /> : <Loading />}</div>
+    </main>
   );
 }
 

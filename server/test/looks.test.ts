@@ -11,7 +11,7 @@ import { startServer } from './helpers.ts';
 const s = await startServer();
 const { call, newBot, home } = s;
 
-const BOTON: BotonLook = { shape: 'pill', shell: 'cobalt', glow: 'lime', eyes: 'rings', brows: 'soft', mouth: 'grin', top: 'beacon', ears: 'none', visor: 'none', panel: 'grill', arms: 'nubs', backdrop: 'ice', cheeks: true };
+const BOTON: BotonLook = { shape: 'pill', shell: 'cobalt', glow: 'lime', eyes: 'rings', brows: 'soft', mouth: 'grin', top: 'beacon', ears: 'none', visor: 'none', panel: 'grill', arms: 'nubs', feet: 'treads', backdrop: 'ice', cheeks: true };
 const TATER: TaterLook = { shape: 'chunky', toast: 'toasty', eyes: 'buttons', brows: 'soft', mouth: 'grin', hat: 'beanie', glasses: 'none', extra: 'scarf', arms: 'nubs', wear: 'tomato', backdrop: 'sky', cheeks: true };
 const fromCritter = (c: CritterLook) => lookFromTater(taterFromCritter(c));
 const CRITTER: CritterLook = { body: 'round', ears: 'floppy', eyes: 'bean', mouth: 'w', marks: 'cap', cheeks: false, color: 'mint', backdrop: 'plum' };
@@ -57,6 +57,16 @@ test('a look that is none of these is refused and changes nothing', async () => 
     assert.equal((await call('POST', '/api/bots', { name: 'Tamsin', provider: 'mock', look })).status, 400);
   }
   assert.deepEqual((await call<Bot>('GET', `/api/bots/${bot.id}`)).data.look, BOTON);
+});
+
+test('a look saved without feet (an older app) keeps the feet the Boton has; one that names feet changes them', async () => {
+  const bot = await newBot('Hazel', { look: { ...BOTON, shape: 'saucer', feet: 'hover' } });
+  const { feet: _, ...older } = { ...BOTON, shape: 'stack' as const, eyes: 'happy' as const };
+  const kept = (await call<Bot>('PATCH', `/api/bots/${bot.id}`, { look: older })).data.look;
+  assert.deepEqual(kept, { ...older, feet: 'hover' });
+  assert.equal((await call<Bot>('PATCH', `/api/bots/${bot.id}`, { look: { ...older, feet: 'none' } })).data.look.feet, 'none');
+  // A new Boton from an older app stands on nothing.
+  assert.equal((await newBot('Juno', { look: older })).look.feet, 'none');
 });
 
 test('extra fields in a look are dropped', async () => {

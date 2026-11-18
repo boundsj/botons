@@ -184,7 +184,7 @@ test('the `botons mcp` bridge: two identical permission prompts at once, one All
 
 const ask = (from: string, name: string): MessageMeta => ({ kind: 'ask', fromBotId: from, fromBotName: name, threadId: `th_${from}`, hop: 1 });
 
-test("a chat turn answers one audience, and its replay holds no message waiting for another (asks first, several askers, the owner's)", () => {
+test("a chat turn answers one audience, and its replay holds no message waiting for another (the owner's first, then several askers)", () => {
   const { store } = open();
   const bob = store.createBot({ name: 'Bob', provider: 'mock' }, new Set(['mock']), 'mock');
   store.addMessage(bob.id, 'user', 'Earlier, answered: hello', null);
@@ -210,7 +210,8 @@ test("a chat turn answers one audience, and its replay holds no message waiting 
     assert.equal(turn.more, seen.length < 3);
     store.finishChatTurn(ids, bob.id, `Reply ${seen.length}`, null);
   }
-  assert.deepEqual(seen, [['ASK_A', 'ASK_A2'], ['ASK_B'], ['OWNER_PRIVATE_PENDING']]);
+  // The owner's message goes before the asks that came earlier (none has waited ten minutes).
+  assert.deepEqual(seen, [['OWNER_PRIVATE_PENDING'], ['ASK_A', 'ASK_A2'], ['ASK_B']]);
 });
 
 test("the owner's turn first: its replay holds no colleague's ask still waiting", () => {
@@ -286,4 +287,19 @@ test('a signature is checked on the exact bytes, before anything parses them; a 
   // Linear's freshness is read from the signed body, after the signature.
   assert.match(webhooks.freshnessProblem('linear', { webhookTimestamp: Date.now() - 120_000 })!, /Stale/);
   assert.equal(webhooks.freshnessProblem('linear', { webhookTimestamp: Date.now() }), null);
+});
+
+test('network request records cannot execute while normal consequential action approvals remain available', () => {
+  const { approvals, bot, store } = approvalsFixture();
+  const action = approvals.request(bot.id, {
+    title: 'Send the reviewed message', details: 'Fixture recipient and content', followUp: 'Send the reviewed message',
+  }, { sandboxed: false }).approval;
+  assert.equal(action.status, 'pending');
+  assert.equal(approvals.decide(action.id, { decision: 'allow' }, null).status, 'allowed');
+  const waiting = approvals.toolCall(bot.id, {
+    toolName: 'mcp__fixture__create_item', input: { fixture: 'read-only-record' }, toolUseId: 'fixture-record',
+  }, { sandboxed: false });
+  store.db.prepare("update approvals set tool_name='browser', tool_key='browser-op:fixture' where id=?").run(waiting.approval!.id);
+  assert.throws(() => approvals.decide(waiting.approval!.id, { decision: 'allow' }, null), /no longer active/);
+  assert.equal(approvals.get(waiting.approval!.id).status, 'cancelled');
 });

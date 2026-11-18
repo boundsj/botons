@@ -1,5 +1,8 @@
+import { teamRoutes } from './team-routes.ts';
+import type { Teams } from './teams.ts';
 import { VERSION } from '../../shared/app-version.mjs';
-import { cliHome, importCodexSignIn } from './cli-homes.ts';
+import { APNS_TOKEN, type PushDevices } from './apns.ts';
+import { cliHome, codexGlobalInstructions } from './cli-homes.ts';
 import { installType } from './install-type.ts';
 import { createHash } from 'node:crypto';
 import { CliInstaller } from './cli-install.ts';
@@ -9,6 +12,8 @@ import { previewCodexRepairs, repairCodexConfig } from './codex-config-repair.ts
 import { BrainLogin } from './brain-login.ts';
 import { existsSync } from 'node:fs';
 import type {
+  DevicePushStatus,
+  RegisterPushInput,
   RecentLogs,
   RehearseRestoreInput,
   ApiKeysView,
@@ -238,6 +243,8 @@ export function buildRouter(deps: {
   starterGate: StarterGate;
   spending: Spending;
   trash: Trash;
+  pushDevices: PushDevices;
+  teams: Teams;
 }): Router {
   const { trash } = deps;
   const { cfg, store, engine, hub, providers, auth, health, connectors, skills, approvals, cards, reactions, browser, oauth, audit, setup, callbacks, recentLogs, rehearsals, apiKeys, starterGate, spending } = deps;
@@ -456,17 +463,18 @@ export function buildRouter(deps: {
     } catch (e) { throw new HttpError(409, (e as Error).message); }
     return { installed: true };
   });
-  r.on('GET', '/api/brain-homes', (c) => { pairedOwner(c); return { codex: cliHome('codex').pending, claude: cliHome('claude').pending }; });
+  // `codex` stays false: Codex uses the server account's own sign-in, so there is never a copy to offer (older apps read it).
+  r.on('GET', '/api/brain-homes', (c) => {
+    pairedOwner(c);
+    const codex = cliHome('codex');
+    return { codex: false, claude: cliHome('claude').pending, codexSignIn: codex.keptOnly ? 'botons-only' : 'account', codexInstructions: codexGlobalInstructions().length > 0 };
+  });
+  // Older apps offer to copy the Codex sign-in. Nothing is ever copied: a copy goes stale as soon as either refreshes.
   r.on('POST', '/api/brain-homes/codex/import', async (c) => {
     pairedOwner(c);
     const input = await c.body<{ consent?: unknown }>();
     if (input?.consent !== true) throw new HttpError(400, 'Confirm using your existing sign-in first.');
-    if (brainLogin.view().state === 'waiting') throw new HttpError(409, 'Cancel sign-in before copying an existing sign-in.');
-    try {
-      importCodexSignIn(phase => audit.require(c.principal, { action: `brain.signin_import_${phase}`, details: { provider: 'codex-cli' } }));
-    } catch { throw new HttpError(409, 'Could not copy the sign-in. Sign in separately or check again.'); }
-    providers.ownerRecheck();
-    return { imported: true };
+    throw new HttpError(409, "Nothing to copy: Botons uses this server account's Codex sign-in directly. If Codex shows signed out, sign in from Settings → Brains.");
   });
   r.on('GET', '/api/brain-config-repairs', (c) => { pairedOwner(c); return previewCodexRepairs(); });
   r.on('POST', '/api/brain-config-repairs', async (c) => {
@@ -618,8 +626,10 @@ export function buildRouter(deps: {
   });
   // Devices only (the default): the sign-in is bound to the device that starts it.
   r.on('POST', '/api/oauth-connections/:id/connect', async (c) => {
-    const { returnTo } = await c.body<{ returnTo?: unknown }>();
-    const started = await oauth.startConnect(c.params.id, c.principal?.kind === 'device' ? c.principal.deviceId : null, returnTo);
+    const input = await c.body<{ returnTo?: unknown; completion?: unknown }>();
+    // Either the web's return address or the native app's completion, never both; the app's one value is 'app'.
+    if (Object.hasOwn(input, 'completion') && (input.completion !== 'app' || Object.hasOwn(input, 'returnTo'))) throw new HttpError(400, 'Send either returnTo or completion: "app"');
+    const started = await oauth.startConnect(c.params.id, c.principal?.kind === 'device' ? c.principal.deviceId : null, input.returnTo, input.completion === 'app' ? 'app' : null);
     audit.record(c.principal, { action: 'oauth.signin_started', target: { kind: 'oauth', id: c.params.id, label: oauth.get(c.params.id).name } });
     return started;
   });
@@ -661,6 +671,30 @@ export function buildRouter(deps: {
       if (auth.revokeDevice(id)) audit.record(actor, { action: 'device.revoked', target: { kind: 'device', id, label: actor.label }, details: { signedOut: true } });
     }
     return { ok: true };
+  });
+  // Push to the native app, for the calling device only: paired devices only (the default access), never a Boton token
+  // and never a caller without a device token. Only whether the server is set up for it is said; never the key or its settings.
+  const pushDeviceId = (c: Ctx): string => {
+    if (c.principal?.kind !== 'device' || !c.principal.deviceId) throw new HttpError(403, 'Pair this device before registering it for push.');
+    return c.principal.deviceId;
+  };
+  const pushStatus = (id: string): DevicePushStatus => {
+    const reg = deps.pushDevices.get(id);
+    return { configured: cfg.apns !== null, registered: !!reg, environment: reg?.environment ?? null, updatedAt: reg?.updatedAt ?? null, lastResult: reg?.lastResult ?? null };
+  };
+  r.on('GET', '/api/devices/current/push', (c) => pushStatus(pushDeviceId(c)));
+  r.on('PUT', '/api/devices/current/push', async (c) => {
+    const id = pushDeviceId(c);
+    const input = await c.body<Partial<RegisterPushInput>>();
+    if (typeof input.token !== 'string' || !APNS_TOKEN.test(input.token)) throw new HttpError(400, 'token must be the hexadecimal device token from Apple (32 to 200 characters)');
+    if (input.environment !== 'development' && input.environment !== 'production') throw new HttpError(400, 'environment must be "development" or "production"');
+    deps.pushDevices.register(id, input.token, input.environment);
+    return pushStatus(id);
+  });
+  r.on('DELETE', '/api/devices/current/push', (c) => {
+    const id = pushDeviceId(c);
+    deps.pushDevices.remove(id);
+    return pushStatus(id);
   });
   r.on('GET', '/api/devices', (c) => auth.devices(c.principal?.kind === 'device' ? c.principal.deviceId : null));
   r.on('DELETE', '/api/devices/:id', (c) => {
@@ -907,7 +941,12 @@ export function buildRouter(deps: {
     { maxBody: PORTABLE_MAX_BYTES },
   );
 
-  r.on('GET', '/api/bots/:id/team', (c) => store.team(c.params.id), ownBotRead);
+  // A webhook run (sandboxed) gets the roster without anyone's teams: a team's state must not reach it.
+  r.on('GET', '/api/bots/:id/team', (c) => {
+    const all = store.team(c.params.id);
+    return c.principal?.kind === 'boton' && c.principal.sandboxed ? all.map(({ teams: _teams, ...m }) => m) : all;
+  }, ownBotRead);
+  teamRoutes(r, { teams: deps.teams });
   // The token says who asks; :id is who is asked. Not for a sandboxed turn: it would carry a webhook's payload to another Boton.
   r.on(
     'POST',
@@ -916,8 +955,7 @@ export function buildRouter(deps: {
       if (c.principal?.kind !== 'boton') {
         throw new HttpError(400, 'Only a Boton asks another Boton (with `botons ask`, during its turn). To message a Boton yourself, use POST /api/bots/:id/messages.');
       }
-      const { text } = await c.body<AskInput>();
-      c.json(202, engine.ask(c.principal.botId, c.params.id, text));
+      c.json(202, engine.ask(c.principal.botId, c.params.id, await c.body<AskInput>()));
     },
     { anyBoton: true },
   );
@@ -1068,6 +1106,16 @@ export function buildRouter(deps: {
       if (err instanceof HttpError && (err.status === 409 || err.status === 403)) await write(liveNotice({ type: 'ended' }));
       sink.end();
     }
+  });
+  // A polling client can finish upgrading without retaining a request-review queue.
+  r.on('GET', '/api/bots/:id/browser/handover/requests', (c) => {
+    deviceOf(c);
+    c.res.setHeader('cache-control', 'no-store');
+    return [];
+  });
+  r.on('POST', '/api/bots/:id/browser/handover/requests/:request', (c) => {
+    deviceOf(c);
+    throw new HttpError(410, 'Request review is unavailable. Reload the browser view.');
   });
   r.on('POST', '/api/bots/:id/browser/handover/input', async (c) => browser.ownerInput(c.params.id, deviceOf(c), await c.body()));
   r.on('POST', '/api/bots/:id/browser/handover/finish', async (c) => {

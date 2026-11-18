@@ -1,7 +1,7 @@
 import { serviceManager } from '../shared/service-manager.mjs';
 import { browserSearchPaths } from '../server/src/browser-paths.ts';
 import { BROWSER_CONNECTOR } from '../shared/util.ts';
-import { cliHome, cliHomesEnv } from '../server/src/cli-homes.ts';
+import { cliHome, cliHomesEnv, codexGlobalInstructions } from '../server/src/cli-homes.ts';
 import { sandboxProblem } from '../server/src/sandbox.ts';
 import { readReleaseChecks, newerRelease, botonsReleaseVersion } from '../server/src/cli-updates.ts';
 // `npm run doctor [-- --json] [-- --env-path <file>]` (in Docker: `botons doctor`): checks an install and says
@@ -267,6 +267,16 @@ export async function diagnose(o: DoctorOptions): Promise<Finding[]> {
   for (const line of legacyLeftovers({ env })) add('deprecated', 'info', line);
   add('config', 'ok', `Settings are valid: port ${cfg.port}, listening on ${cfg.hosts.join(', ')}${cfg.tailscale.mode === 'bind' ? ' and the Tailscale address' : ''}`);
 
+  // Push to the native app: named when set, never the key.
+  if (cfg.apns) {
+    add('apns', 'info', `Push to the Botons app through Apple is set: BOTONS_APNS_TOPIC ${cfg.apns.topic}, BOTONS_APNS_KEY_ID ${cfg.apns.keyId}, BOTONS_APNS_TEAM_ID ${cfg.apns.teamId}, BOTONS_APNS_KEY_FILE ${cfg.apns.keyFile}`);
+    let mode = 0;
+    try {
+      mode = statSync(cfg.apns.keyFile).mode;
+    } catch {}
+    if (mode & 0o077) add('apns', 'warn', `${cfg.apns.keyFile} can be read by other users (mode ${(mode & 0o777).toString(8)})`, `chmod 600 ${cfg.apns.keyFile}`);
+  }
+
   // Who can reach it.
   if (!cfg.authEnabled) add('auth', 'fail', 'BOTONS_AUTH=off: anyone who can reach the server can use it, Botons included', 'Remove BOTONS_AUTH as soon as a device is paired.');
   const everywhere = cfg.hosts.some((h) => h === '0.0.0.0' || h === '::');
@@ -478,13 +488,18 @@ export async function diagnose(o: DoctorOptions): Promise<Finding[]> {
 
   const botonsRelease = readReleaseChecks(cfg.home).botons;
   if (botonsRelease && newerRelease(botonsReleaseVersion(o.app ?? repo), botonsRelease.latest)) add('Botons updates', 'info', `Botons ${botonsRelease.latest} is available`, 'For installer installs run botons upgrade with the release source. Botons never upgrades itself automatically.');
-  for (const kind of ['codex', 'claude'] as const) {
-    if (cliHome(kind, env).pending) add(`${kind} sign-in`, 'warn', 'Botons is using your personal sign-in to keep your Botons working.', 'Open Settings → Brains to give Botons its own sign-in. Your Botons keep working until you choose.');
-  }
+  if (cliHome('claude', env).pending) add('claude sign-in', 'warn', 'Botons is using your personal sign-in to keep your Botons working.', 'Open Settings → Brains to give Botons its own sign-in. Your Botons keep working until you choose.');
+  // Codex uses the server account's own home and sign-in; a sign-in kept in BOTONS_HOME/cli/codex is never copied.
+  const codexHome = cliHome('codex', env);
+  if (codexHome.keptOnly) add('codex sign-in', 'warn', `Codex is using a sign-in kept just for Botons (${join(codexHome.isolated, codexHome.auth)}), because this server account has none in ${codexHome.personal}.`, 'Sign in once as the server user: botons login codex, or Settings → Brains. Botons then uses that sign-in by itself, and leaves the kept one where it is.');
+  else if (existsSync(join(codexHome.isolated, codexHome.auth)) && codexHome.isolated !== codexHome.personal) add('codex sign-in', 'info', `Botons uses this server account's Codex sign-in (${codexHome.personal}). A sign-in kept just for Botons in ${codexHome.isolated} is not used and has probably stopped working.`, `Keep ${codexHome.isolated} while Botons copies the conversations its Botons resume from there; delete its auth.json when you no longer want it.`);
   const linkedConfig = codexConfigSymlinks({ ...env, ...cliHomesEnv(env) }, env.HOME || homedir());
   if (linkedConfig.length) add('Codex config', 'warn',
     `Symlinked protected config paths: ${linkedConfig.join(', ')}. Workspace Codex can fail loading AGENTS.md with "Can't mount on symlink destination".`,
-    'Keep Workspace sandboxing enabled. The owner can replace the named config links with regular files or directories containing reviewed copies, then retry. Run `botons doctor --fix` in an interactive terminal to review and confirm a regular-file copy, or sign in separately for Botons in Settings → Brains. Directory links need review on the server. Upgrading Codex alone may not fix this; check the server user’s CODEX_HOME, including AGENTS.md and skills.');
+    'Keep Workspace sandboxing enabled. The owner can replace the named config links with regular files or directories containing reviewed copies, then retry. Run `botons doctor --fix` in an interactive terminal to review and confirm a regular-file copy. Directory links need review on the server. Upgrading Codex alone may not fix this; check the server user’s CODEX_HOME, including AGENTS.md and skills.');
+
+  const instructions = codexGlobalInstructions(env);
+  if (instructions.length) add('Codex config', 'info', `Codex adds ${instructions.join(' and ')} from ${codexHome.selected} to every Codex Boton turn: Botons shares this account's Codex home for its sign-in.`, 'Keep instructions there that suit your Botons too, or move them into the projects that need them.');
 
   // The Claude sandbox that Workspace-access Botons run commands in (Linux: bubblewrap and socat).
   if (process.platform === 'linux') {

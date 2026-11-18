@@ -42,7 +42,7 @@ export function botonCapabilities(bot: Bot, connectors: BotonConnector[], routin
   if (callbacks.length) summary.push(`${callbacks.length === 1 ? 'One routine sends' : `${callbacks.length} routines send`} run results to a callback URL you set.`);
   if (browser?.enabled && browser.sites.length) {
     summary.push(
-      `Browser: its own managed browser, reaching ${browser.sites.join(', ')}. It reads on its own (it opens and reads pages and takes screenshots) and clicks and types, but sends nothing a page would send (a form, a POST) unless you allow that exact request on a card, once; it never types passwords, codes or card numbers, signs in itself (you can sign its browser in yourself, by taking it over), downloads or uploads. No access to this computer's screen or your own browser profile. Not in webhook runs.`,
+      `Browser: its own managed browser, reaching ${browser.sites.join(', ')}. It loads pages normally, reads, clicks and types. Consequential external actions follow your normal approval rules; it never types passwords, codes or card numbers, signs in itself (you can sign its browser in yourself, by taking it over), downloads or uploads. No access to this computer's screen or your own browser profile. Not in webhook runs.`,
     );
   } else if (browser?.enabled) summary.push('Browser: on, but no site is listed yet, so it reaches nothing.');
   const on = mine.filter((c) => !c.off);

@@ -23,6 +23,12 @@ The web app talks to the server over a JSON API under `/api`. These are the endp
 | `GET`, `PUT /api/connectors/:id/access` | Which Botons have a connector | [connectors.md](../connectors.md#connect-a-service) |
 | `POST /api/connectors/:id/test` | Test a connector by listing its tools | [connectors.md](../connectors.md#test) |
 | `GET /api/api-keys`, `PUT`, `DELETE /api/api-keys/:provider`, `POST /api/api-keys/:provider/test` | Saved API keys | [api-keys.md](../api-keys.md#api-keys) |
+| `GET`, `POST /api/teams`, `GET`, `PATCH`, `DELETE /api/teams/:id` | Teams, a team with its items and newest events, and changes to one | [using-botons.md](../using-botons.md#teams) |
+| `PUT /api/teams/:id/members`, `POST /api/teams/:id/state`, `POST /api/teams/:id/review` | A team's whole roster; pause, stop, resume or archive it; review its completion | [using-botons.md](../using-botons.md#teams) |
+| `POST /api/teams/:id/items`, `GET /api/team-items/:id`, `POST /api/team-items/:id/actions` | A team's items, and your actions on them | [using-botons.md](../using-botons.md#teams) |
+| `GET /api/team-threads`, `GET /api/team-threads/:id[/messages]`, `POST /api/team-threads/:id/read` | Conversations between Botons, their messages and deliveries, and your read marker | [using-botons.md](../using-botons.md#teams) |
+| `GET /api/teams/attention`, `GET /api/teams/search` | What needs you in Teams; search of what Botons said | [using-botons.md](../using-botons.md#teams) |
+| `POST /api/bots/:id/asks`, `GET /api/bots/:id/teams[/:teamId]`, `…/teams/:teamId/items`, `…/teams/:teamId/done`, `…/team-items/:itemId[/actions\|/escalations]`, `…/team-threads/:threadId` | A Boton's own (its turn's token only, never a sandboxed run's): asks, its teams and boards, item actions, escalations, finishing a team, threads it may read | [security.md](../security.md#teams-and-messages-between-botons) |
 | `GET /api/config/export` | Your configuration, without secrets | [backups.md](../backups.md#moving-your-configuration-to-another-server) |
 | `POST /api/config/import/preview`, `POST /api/config/import` | Preview and import a configuration | [backups.md](../backups.md#moving-your-configuration-to-another-server) |
 

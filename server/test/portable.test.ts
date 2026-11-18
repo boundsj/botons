@@ -328,6 +328,9 @@ test('a file that is malformed, from a newer Botons or trying to reach outside i
     ['too long', (f) => ((f.botons[0].instructions = 'x'.repeat(20_001)), f), /instructions/],
     ['credential in a URL', (f) => ((f.connectors.find((c: any) => c.id === 'lib:tracker').url = 'https://user:pw@mcp.example.com/'), f), /credentials/],
     ['an array for an object', (f) => ((f.settings = []), f), /settings must be an object/],
+    // Feet are a field of version 6 only: required there, refused in a version-5 file.
+    ['a look without feet', (f) => (delete f.botons[0].look.feet, f), /botons\[0\]\.look\.feet is missing/],
+    ['feet in a version-5 look', (f) => ({ ...f, version: 5 }), /look\.feet is not a field of this format version/],
   ];
   for (const [what, change, error] of cases) {
     const r = await preview(dst, change(clone()));
@@ -336,6 +339,15 @@ test('a file that is malformed, from a newer Botons or trying to reach outside i
     const i = await dst.call('POST', '/api/config/import', { file: change(clone()), fingerprint: 'x' });
     assert.equal(i.status, 400, what);
   }
+  // A version-5 file (no feet anywhere) reads as this version, every look standing on nothing.
+  const v5 = clone();
+  v5.version = 5;
+  for (const b of v5.botons) delete b.look.feet;
+  for (const t of v5.templates) if (t.bot.look) delete t.bot.look.feet;
+  const read = readPortable(v5);
+  assert.equal(read.upgradedFrom, 5);
+  assert.ok(read.file.botons.length > 0 && read.file.botons.every((b) => b.look.feet === 'none'));
+  assert.deepEqual(read.file.botons.map((b) => ({ ...b.look, feet: 'none' })), file.botons.map((b: { look: object }) => ({ ...b.look, feet: 'none' })));
   // A __proto__ key, as JSON.parse keeps it (an own property), anywhere in the file.
   const raw = JSON.stringify({ file: clone() }).replace('"look":{', '"look":{"__proto__":{"admin":true},');
   const res = await fetch(`${dst.base}/api/config/import/preview`, { method: 'POST', headers: { authorization: `Bearer ${dst.token}`, 'content-type': 'application/json' }, body: raw });

@@ -50,7 +50,6 @@ import { RunLimiter } from './limits.ts';
 import { type LogFields, log } from './log.ts';
 import type { Notifier, PushRequest } from './notify.ts';
 import {
-  ASK_HOP_LIMIT,
   attachmentNote,
   chatInput,
   reactionFollowUpPrompt,
@@ -70,6 +69,8 @@ import type { ProviderRegistry } from './providers/index.ts';
 import { DEFAULT_COOLDOWN_MS, MIN_COOLDOWN_MS } from './providers/failures.ts';
 import { type McpStartup, type Provider, ProviderError, type TurnResult, type TurnUsage } from './providers/types.ts';
 import type { Skills } from './skills.ts';
+import type { TeamTurn, Teams } from './teams.ts';
+import { audienceOf, isTeamAudience, type TurnScope } from '../../shared/teams.ts';
 import type { StarterGate } from './starter-gate.ts';
 import { excerptOf, type Feedback, ownersOwn, type Reactions } from './reactions.ts';
 import { type WorkFeed, workEventPrompt } from './work-feed.ts';
@@ -91,6 +92,8 @@ interface Job {
   wait: AbortController;
   /** The queued run this job waits for a slot to start. */
   runId?: string;
+  /** While it waits for the team reserve: aborted when the owner's message comes, so the owner never waits on a team. */
+  ownerFirst?: AbortController;
   turn?: AbortController;
   run?: { runId: string; routineId: string; routineName: string; trigger: RunTrigger };
   /**
@@ -113,7 +116,6 @@ type Chain = { threadId: string; hop: number };
 export const ROUTINE_QUEUE_MAX = 3;
 const QUEUE_FULL_RETRY_S = 60;
 const CHIP_EVERY_MS = 3_600_000;
-const ASK_MAX = 20_000;
 export const DRAFT_EVERY_MS = 150;
 const NOTIFY_PUSHES_PER_HOUR = 10;
 const CUT_OFF_LIMIT = 3;
@@ -147,8 +149,6 @@ const unansweredNote = (owner: string) =>
 
 export const INTERRUPTED_NOTE =
   '(Note from the Botons server: your previous attempt at some or all of the messages below was cut off, by a server restart or a usage limit, so it may have partly run. Check what was already done before you repeat anything with side effects.)';
-
-const pairKey = (a: string, b: string) => (a < b ? `${a}|${b}` : `${b}|${a}`);
 
 function threadOf(messages: Message[]): Chain | null {
   let best: Chain | null = null;
@@ -274,6 +274,7 @@ export class Engine {
   skills!: Skills;
   approvals!: Approvals;
   reactions!: Reactions;
+  teams!: Teams;
   browser?: Browser;
   workFeed!: WorkFeed;
   /** Notes what a starter's test runs ran on (starter-gate.ts). */
@@ -290,15 +291,16 @@ export class Engine {
   /** A move waiting for the old session's summary holds its Boton (see #moveWithSummary). */
   #summaries = new Map<string, { hold: symbol; controller: AbortController }>();
   /** While a turn's `botons` token is valid. `bot` as the turn read it, so what it posts is marked stale like its reply. */
-  #turns = new Map<string, { bot: BotRecord; origin: ApprovalOrigin; access: AccessLevel; chain: Chain | null; connectors: string[] }>();
+  #turns = new Map<string, { bot: BotRecord; origin: ApprovalOrigin; access: AccessLevel; chain: Chain | null; connectors: string[]; work: string | null; teams: string[]; scope: TurnScope | null }>();
   #slots: Semaphore;
+  /** Turns for another Boton or a team hold one of these as well as a slot: at most maxConcurrentTurns - 1 (at least 1). */
+  #teamSlots: Semaphore;
   #draining = false;
   #maintenance = false;
   #closing = new AbortController();
   #interruptedCount = 0;
   #notifyPushes = new Map<string, number[]>();
   #limiter: RunLimiter;
-  #askLimiter: RunLimiter;
   #chipAt = new Map<string, number>();
   #cooldowns = new Map<string, { until: Date; reason: string }>();
   #noticed = new Map<string, number>();
@@ -309,8 +311,8 @@ export class Engine {
     this.#hub = hub;
     this.#providers = providers;
     this.#slots = new Semaphore(cfg.maxConcurrentTurns);
+    this.#teamSlots = new Semaphore(Math.max(1, cfg.maxConcurrentTurns - 1));
     this.#limiter = new RunLimiter(cfg.routineRunsPerHour, cfg.runsPerHour);
-    this.#askLimiter = new RunLimiter(cfg.asksPerPairPerHour, cfg.asksPerHour);
   }
 
   statusOf = (botId: string): BotStatus => this.#status.get(botId) ?? { state: 'idle', activity: null, since: null };
@@ -318,11 +320,40 @@ export class Engine {
   turnOrigin = (botId: string): ApprovalOrigin | null => this.#turns.get(botId)?.origin ?? null;
 
   turnAccess = (botId: string): AccessLevel | null => this.#turns.get(botId)?.access ?? null;
+
+  /** What Teams knows of a Boton's running turn: who it is, what it answers, and its chain of asks. Never from the Boton. */
+  teamTurn = (botId: string): TeamTurn | null => {
+    const t = this.#turns.get(botId);
+    return t ? { bot: t.bot, turnId: t.origin.turnId, origin: t.work, chain: t.chain, scope: t.scope } : null;
+  };
+
+  /**
+   * The owner's Stop work on a team: every running turn that answers that team's work (a message of the team: an
+   * assignment, a team ask, a check-in) is stopped. Other turns go on: Stop work moved every item of the team to a new
+   * assignment, so what they might still try about one is refused.
+   */
+  stopTeamTurns = (teamId: string): void => {
+    for (const [botId, t] of this.#turns) if (t.teams.includes(teamId)) this.stop(botId);
+  };
+
+  /** A chip in a Boton's chat for what its running turn did (marked stale like its reply when the turn read an older Boton). */
+  teamChip = (botId: string, text: string, meta: MessageMeta): Message => {
+    const bot = this.#turns.get(botId)?.bot ?? this.store.getBot(botId);
+    return this.store.addMessage(botId, 'event', text, this.#postMeta(bot, meta));
+  };
   /** The turns running now that were given connector `id`: turning it off doesn't reach into those turns. */
   turnsWith = (id: string): { botId: string; turnId: string }[] => [...this.#turns].flatMap(([botId, t]) => (t.connectors.includes(id) && t.origin.turnId ? [{ botId, turnId: t.origin.turnId }] : []));
 
   queueChat(botId: string): void {
-    if (this.store.hasBot(botId) && !this.store.pausedReason(botId)) this.#enqueue(botId, { kind: 'chat' });
+    if (!this.store.hasBot(botId) || this.store.pausedReason(botId)) return;
+    // Something for the owner (a decision, a follow-up) goes first too, as the owner's own message does.
+    if (this.#jobs.get(botId)?.ownerFirst && this.store.nextAudience(botId) === 'owner') this.#ownerFirst(botId);
+    this.#enqueue(botId, { kind: 'chat' });
+  }
+
+  /** A job of this Boton waiting for the team reserve stops waiting, to look at whom its turn answers again. */
+  #ownerFirst(botId: string): void {
+    this.#jobs.get(botId)?.ownerFirst?.abort();
   }
 
   #setStatus(botId: string, state: BotStatus['state'], activity: string | null = null) {
@@ -385,71 +416,17 @@ export class Engine {
     if (t.length > 50_000) throw new HttpError(400, 'Message is too long');
     this.store.getBot(botId);
     const message = this.store.addMessage(botId, 'user', t, attachments.length ? { attachments } : null, true);
-    if (!this.store.pausedReason(botId)) this.#enqueue(botId, { kind: 'chat' });
+    if (!this.store.pausedReason(botId)) {
+      this.#ownerFirst(botId);
+      this.#enqueue(botId, { kind: 'chat' });
+    }
     return message;
   }
 
-  /** Nothing waits for the answer (it comes back as a message, see #answerAsks), so two Botons asking each other can't deadlock. */
-  ask(fromId: string, toId: string, text: unknown): AskResult {
+  /** `botons ask`: through Teams, the one transport between Botons (see teams.ts). */
+  ask(fromId: string, toId: string, input: unknown): AskResult {
     this.#refuseWhileDraining();
-    if (typeof text !== 'string' || !text.trim()) throw new HttpError(400, 'text is required');
-    const t = text.trim();
-    if (t.length > ASK_MAX) throw new HttpError(400, `text is too long (max ${ASK_MAX} characters)`);
-    const from = this.store.getBot(fromId);
-    if (toId === fromId) throw new HttpError(400, "You can't ask yourself. Do the work in this turn instead.");
-    if (!this.store.hasBot(toId)) throw new HttpError(404, `No Boton with id ${toId}. Run \`botons team\` to see who is on the team.`);
-    const to = this.store.getBot(toId);
-    const running = this.#turns.get(fromId);
-    const hop = (running?.chain?.hop ?? 0) + 1;
-    const threadId = running?.chain?.threadId ?? newId('thr');
-    const about: MessageMeta = { toBotId: to.id, toBotName: to.name, askText: t, threadId, hop };
-    const chip = (kind: 'ask.refused' | 'ask.sent', label: string) => this.store.addMessage(from.id, 'event', label, this.#postMeta(running?.bot ?? from, { kind, ...about }));
-    const fields: LogFields = { botId: from.id, toBotId: to.id, threadId, hop };
-
-    if (hop > ASK_HOP_LIMIT) {
-      chip('ask.refused', `Didn't ask ${to.name}: ${ASK_HOP_LIMIT} asks in a row is the limit`);
-      log.info('ask refused: hop limit', fields);
-      const owner = this.store.getSettings().ownerName;
-      throw new HttpError(
-        409,
-        `${to.name} was not asked: this thread between Botons already has ${ASK_HOP_LIMIT} asks in a row, the limit. Put what you have in your reply instead; ${owner} can see it in your chat.`,
-      );
-    }
-    const pair = pairKey(from.id, to.id);
-    const hit = this.#askLimiter.check(pair);
-    if (hit) {
-      const { s, wait } = retryAfter(hit.retryAfterMs);
-      const between = hit.limit === 'routine' ? `${from.name} and ${to.name}` : 'all Botons';
-      if (this.#chipDue(pair)) chip('ask.refused', `Didn't ask ${to.name}: too many asks (limit: ${hit.max} an hour between ${between})`);
-      log.warn('ask refused: rate limit', { ...fields, limit: hit.limit === 'routine' ? 'pair' : 'total', max: hit.max });
-      throw new HttpError(429, `${to.name} was not asked: ${between} have sent ${hit.max} asks in the last hour, the limit. Try again in ${wait}, or put it in your reply.`, {
-        'retry-after': String(s),
-      });
-    }
-    this.#askLimiter.record(pair);
-    const message = this.store.addMessage(to.id, 'user', t, { kind: 'ask', fromBotId: from.id, fromBotName: from.name, threadId, hop }, true);
-    chip('ask.sent', `Asked ${to.name}`);
-    log.info('ask sent', fields);
-    if (!this.store.pausedReason(to.id)) this.#enqueue(to.id, { kind: 'chat' });
-    return { message, threadId, hop };
-  }
-
-  /** Only asks are answered, never replies, so two Botons can't loop. */
-  #answerAsks(bot: BotRecord, answered: Message[], text: string) {
-    const asks = new Map<string, Message>();
-    for (const m of answered) {
-      const asker = m.meta?.kind === 'ask' ? m.meta.fromBotId : undefined;
-      if (!asker) continue;
-      const prev = asks.get(asker);
-      if (!prev || (m.meta?.hop ?? 1) >= (prev.meta?.hop ?? 1)) asks.set(asker, m);
-    }
-    for (const [asker, ask] of asks) {
-      if (!this.store.hasBot(asker)) continue;
-      const reply = text.length > ASK_MAX ? `${text.slice(0, ASK_MAX)}…` : text;
-      this.store.addMessage(asker, 'user', reply, { kind: 'ask.reply', fromBotId: bot.id, fromBotName: bot.name, threadId: ask.meta?.threadId, hop: ask.meta?.hop, askId: ask.id }, true);
-      log.info('ask answered', { botId: asker, fromBotId: bot.id, threadId: ask.meta?.threadId, hop: ask.meta?.hop });
-      if (!this.store.pausedReason(asker)) this.#enqueue(asker, { kind: 'chat' });
-    }
+    return this.teams.send(fromId, toId, input);
   }
 
   triggerRoutine(routineId: string, trigger: RunTrigger, payload: string | null = null, headers: Record<string, string> | null = null): RoutineRun {
@@ -544,10 +521,12 @@ export class Engine {
       const bot = orNull(() => this.store.getBot(botId));
       if (!bot) continue;
       const ids = messages.map((m) => m.id);
-      this.store.markProcessed(ids);
       const why = `The last ${CUT_OFF_LIMIT} attempts to answer this were cut off by a restart or crash, so it was not tried again. Some of it may have run. Send it again to retry.`;
-      this.#post(bot, 'error', why);
-      this.#answerAsks(bot, messages, `(${bot.name} could not answer: ${why})`);
+      this.store.atomically(() => {
+        this.store.markProcessed(ids);
+        this.teams.replied(bot, messages, `(${bot.name} could not answer: ${why})`, 'failed');
+        this.#post(bot, 'error', why);
+      });
       log.warn('gave up on chat messages cut off at every start', { botId, messages: ids.length, limit: CUT_OFF_LIMIT });
     }
   }
@@ -709,7 +688,7 @@ export class Engine {
     let cancelledRuns = 0;
     if (opts.clearQueue) {
       cancelledRuns = this.store.cancelQueuedRuns(botId, 'Cancelled');
-      this.store.dropPendingChat(botId);
+      this.#dropChat(botId);
     }
     return { stopped, cancelledRuns, queuedRuns: this.store.queuedRuns(botId).length };
   }
@@ -756,6 +735,8 @@ export class Engine {
     this.store.addMessage(botId, 'event', paused ? 'Paused' : 'Resumed', { kind: paused ? 'bot.paused' : 'bot.resumed' });
     if (paused) this.#halt(botId, PAUSED);
     else this.#resumeWork((id) => id === botId);
+    // What waits for it now reads "paused" (or no longer does) in its conversations.
+    this.teams.publishOpen({ botId });
     return bot;
   }
 
@@ -1246,6 +1227,7 @@ export class Engine {
     // A move's summary too, waiting for a slot or writing: stopped for good, so a resume doesn't bring it back.
     if (paused) for (const botId of new Set([...this.#jobs.keys(), ...this.#summaries.keys()])) this.#halt(botId, PAUSED);
     else this.#resumeWork(() => true);
+    this.teams.publishOpen({});
     return settings;
   }
 
@@ -1331,15 +1313,39 @@ export class Engine {
       const job: Job = { wait: new AbortController(), ...(work.kind === 'routine' ? { runId: work.runId } : {}) };
       this.#jobs.set(botId, job);
       let slot = false;
+      let teamSlot = false;
+      // A turn for another Boton or a team takes the team reserve first, and only then a slot: never holding a slot
+      // while it waits, so one slot is always left for the owner (and with one slot in all, owner turns just wait for it).
+      // The owner's message coming while it waits ends the wait: the audience is looked at again, and when the owner
+      // goes first now the turn takes a slot only.
+      let forTeam = work.kind === 'chat' && isTeamAudience(this.store.nextAudience(botId));
       try {
-        slot = await this.#slots.acquire(job.wait.signal);
+        while (forTeam) {
+          const ownerFirst = new AbortController();
+          job.ownerFirst = ownerFirst;
+          teamSlot = await this.#teamSlots.acquire(AbortSignal.any([job.wait.signal, ownerFirst.signal]));
+          job.ownerFirst = undefined;
+          if (teamSlot) break;
+          if (job.wait.signal.aborted || !ownerFirst.signal.aborted) {
+            if (!this.#draining && !this.#maintenance && !this.store.pausedReason(botId)) return this.#stoppedBeforeStart(botId, work);
+            return;
+          }
+          forTeam = isTeamAudience(this.store.nextAudience(botId));
+        }
+        if (!this.#draining && !this.#maintenance && !this.store.pausedReason(botId)) slot = await this.#slots.acquire(job.wait.signal);
         if (this.#draining || this.#maintenance || this.store.pausedReason(botId)) return;
+        // The owner's message came while it waited for the slot: the turn answers the owner, so the reserve goes back.
+        if (teamSlot && slot && !isTeamAudience(this.store.nextAudience(botId))) {
+          this.#teamSlots.release();
+          teamSlot = false;
+        }
         // Only stop(), pausing and cancelling its run give up the wait.
         if (!slot) return this.#stoppedBeforeStart(botId, work);
         if (work.kind === 'chat') await this.#chatTurn(botId, job);
         else await this.#routineTurn(botId, work.runId, job);
       } finally {
         if (slot) this.#slots.release();
+        if (teamSlot) this.#teamSlots.release();
         this.#jobs.delete(botId);
       }
     } finally {
@@ -1360,13 +1366,23 @@ export class Engine {
 
   #stoppedBeforeStart(botId: string, work: Work) {
     if (work.kind === 'chat') {
-      if (this.store.dropPendingChat(botId)) this.#postStopped(botId);
+      if (this.#dropChat(botId)) this.#postStopped(botId);
       return;
     }
     const run = this.store.findRun(work.runId);
     if (run?.status !== 'queued') return;
     this.#failRunQuietly(run.id, 'Stopped', { cancelled: { started: run.attempts > 0 } });
     this.#postStopped(botId, run);
+  }
+
+  /** The owner cleared what waits in the chat: answered with nothing, and any request among it closed as dropped. */
+  #dropChat(botId: string): number {
+    return this.store.atomically(() => {
+      const dropped = this.store.dropPendingChatMessages(botId);
+      const bot = orNull(() => this.store.getBot(botId));
+      if (bot) this.teams.replied(bot, dropped, '', 'dropped');
+      return dropped.length;
+    });
   }
 
   #chipCutOff(botId: string, turn: TurnInfo, text: string) {
@@ -1424,6 +1440,8 @@ export class Engine {
     const started = Date.now();
     const startedAt = nowIso();
     const turn = newTurnInfo();
+    // Taken as the turn starts: what its team actions may touch (see Teams.turnScope).
+    const scope = this.teams.turnScope(botId, pending);
     // The owner's reactions not yet given (to a turn for the owner, never a colleague's ask), and the owner's own
     // messages it may react to.
     const feedback = pending.some((m) => m.meta?.kind === 'ask') ? [] : this.reactions.feedback(botId);
@@ -1438,6 +1456,8 @@ export class Engine {
           if (m.meta?.kind === 'work.event') return { ...m, text: workEventPrompt(m.meta.work, owner) };
           if (m.meta?.kind === 'connector.granted') return { ...m, text: grantedPrompt(m.meta.connectorId ?? '') };
           if (m.meta?.kind === 'reaction.followup') return { ...m, text: this.#followUpText(m, owner) };
+          // A lead's check-in: built now, from the team as it is now (a reason that stopped being true is left out).
+          if (m.meta?.kind === 'team.checkin') return { ...m, text: this.teams.checkinPrompt(m, owner) };
           if (m.meta?.kind === 'card.answered') return { ...m, text: `(${owner}'s answer to your card ${(m.meta.cardId ?? '').replace(/[^A-Za-z0-9_-]/g, '')}, from the chat:)\n${m.text}` };
           // Only the owner's messages run a /<skill>, not another Boton's.
           const call = m.meta?.fromBotId || m.meta?.kind ? null : this.skills.invoked(bot, m.text);
@@ -1455,7 +1475,8 @@ export class Engine {
       this.#unanswered.delete(botId);
       const unanswered = !!left && pending.some((m) => left.has(m.id));
       const body = `${interrupted ? `${INTERRUPTED_NOTE}\n\n` : ''}${unanswered ? `${unansweredNote(owner)}\n\n` : ''}${text}`;
-      const result = await this.#invoke(bot, chatTrigger(pending), body, turn, job, { ids, images, askers, chain: threadOf(pending), reactable, feedback });
+      const teams = [...new Set(pending.flatMap((m) => (m.meta?.teamId ? [m.meta.teamId] : [])))];
+      const result = await this.#invoke(bot, chatTrigger(pending), body, turn, job, { ids, images, askers, chain: threadOf(pending), reactable, feedback, teams, scope });
       this.reactions.markTold(feedback);
       const note = this.#quietReply(result.text, pending.some(ownersOwn), turn);
       if (note !== null) {
@@ -1466,8 +1487,8 @@ export class Engine {
           // Nothing was posted, so the wake-ups it answered and what it did in the chat leave the transcript too (the
           // API and history keep them).
           this.store.markQuiet(turn.id, ids);
+          this.teams.replied(bot, pending, note || '(nothing to report)', 'quiet', turn.id);
         });
-        this.#answerAsks(bot, pending, note || '(nothing to report)');
         return next();
       }
       // Reacted instead of replying (exactly [quiet], nothing more), to the owner's own messages only: each message it
@@ -1488,9 +1509,14 @@ export class Engine {
         return;
       }
       const reply = result.text.trim() || '(no reply)';
-      const posted = this.store.finishChatTurn(ids, botId, reply, this.#postMeta(bot, this.#replyMeta(bot, started, turn)));
-      this.store.linkTurnMessage(turn.id, posted.id);
-      this.#answerAsks(bot, pending, reply);
+      const posted = this.store.atomically(() => {
+        const out = this.store.finishChatTurn(ids, botId, reply, this.#postMeta(bot, this.#replyMeta(bot, started, turn)));
+        this.store.linkTurnMessage(turn.id, out.id);
+        this.teams.replied(bot, pending, reply, 'replied', turn.id);
+        return out;
+      });
+      // A reply to another Boton or to a team's check-in is theirs, not the owner's: no push (the owner sees it in the chat).
+      if (audienceOf(pending[0]?.meta) === 'owner') this.#pushMessage(bot, posted);
       next();
     } catch (err) {
       // Ran past its time limit first: an error like any other, whatever came while it was exiting.
@@ -1503,14 +1529,17 @@ export class Engine {
         this.#chipCutOff(botId, turn, 'Cut off by the usage limit');
         return;
       }
-      this.store.markProcessed(ids);
-      if (!this.store.hasBot(botId)) return;
+      if (!this.store.hasBot(botId)) return void this.store.markProcessed(ids);
+      const msg = timedOut(err) ? `Stopped: the turn ran past its time limit (${durationText(turn.limitMs)}). It may have partly run.` : errorText(err);
+      this.store.atomically(() => {
+        this.store.markProcessed(ids);
+        // A Boton waiting on an answer hears that none is coming (not when the owner stopped the turn: they meant to).
+        if (reason === STOPPED) this.teams.replied(bot, pending, '', 'stopped', turn.id || null);
+        else this.teams.replied(bot, pending, `(${bot.name} could not answer: ${msg})`, 'failed', turn.id || null);
+      });
       next();
       if (reason === STOPPED) return void this.#linkTurn(turn, this.#postStopped(botId, undefined, turn));
-      const msg = timedOut(err) ? `Stopped: the turn ran past its time limit (${durationText(turn.limitMs)}). It may have partly run.` : errorText(err);
       this.#linkTurn(turn, this.#post(bot, 'error', msg, this.#turnMeta(turn)));
-      // A Boton waiting on an answer hears that none is coming (not when the owner stopped the turn: they meant to).
-      this.#answerAsks(bot, pending, `(${bot.name} could not answer: ${msg})`);
     }
   }
 
@@ -1557,7 +1586,9 @@ export class Engine {
       // The routine (and this run) may have been deleted during the turn, by the Boton even: the reply still belongs in the chat.
       if (this.store.hasBot(botId)) {
         this.#postRunChip(bot, routine, run);
-        this.#linkTurn(turn, this.#post(bot, 'bot', text, { ...this.#replyMeta(bot, started, turn), routineId: routine.id, routineName: routine.name, runId }));
+        const posted = this.#post(bot, 'bot', text, { ...this.#replyMeta(bot, started, turn), routineId: routine.id, routineName: routine.name, runId });
+        this.#linkTurn(turn, posted);
+        if (run.trigger !== 'test') this.#pushMessage(bot, posted, runId);
       }
       if (this.store.findRun(runId)) {
         this.store.updateRun(runId, { status: 'succeeded', reply: text.slice(0, 8000) });
@@ -1568,7 +1599,7 @@ export class Engine {
             detail: `“${routine.name}”: ${text}`,
             generic: 'A routine has a new result.',
             priority: 'default',
-          });
+          }, { apns: false });
         }
       }
     } catch (err) {
@@ -1708,9 +1739,17 @@ export class Engine {
     return orNull(() => this.store.getRoutine(routine.id).notify) ?? routine.notify;
   }
 
-  #pushForRun(runId: string, req: PushRequest): void {
+  #pushMessage(bot: BotRecord, message: Message, runId?: string): void {
+    void this.notifier.message(bot, message)
+      .then((delivery) => {
+        if (delivery && runId && this.store.findRun(runId)) this.store.addRunDelivery(runId, delivery);
+      })
+      .catch((err) => log.warn('could not send a message push', { messageId: message.id, err }));
+  }
+
+  #pushForRun(runId: string, req: PushRequest, options?: { apns?: boolean }): void {
     void this.notifier
-      .push(req)
+      .push(req, options)
       .then((deliveries) => {
         for (const d of deliveries) this.store.addRunDelivery(runId, d);
       })
@@ -1739,7 +1778,7 @@ export class Engine {
     if (skipped) return { message, deliveries: [], skipped };
 
     this.#notifyPushes.set(botId, [...recent, now]);
-    const deliveries = await this.notifier.push({ bot, reason: 'notify', detail: t, generic: 'New notification.', priority });
+    const deliveries = await this.notifier.push({ bot, reason: 'notify', detail: t, generic: 'New notification.', priority, messageId: message.id });
     if (current) for (const d of deliveries) this.store.addRunDelivery(current.runId, d);
     return { message, deliveries, skipped: null };
   }
@@ -1813,6 +1852,8 @@ export class Engine {
     return contextBlock(bot, settings, trigger, this.store.listRoutines(bot.id), this.store.listMemories(bot.id), {
       brain,
       team,
+      // A webhook's payload must not reach a team, nor a team's state a webhook run.
+      teams: sandboxed ? null : this.teams.contextFor(bot.id),
       sharedDir: sandboxed ? undefined : this.#cfg.sharedDir,
       connectors: mcp.servers.map((s) => s.name),
       connectorsOff: mcp.offForWebhook,
@@ -1893,7 +1934,7 @@ export class Engine {
     body: string,
     turn: TurnInfo,
     job: Job,
-    chat: { ids?: string[]; images?: string[]; askers?: string[]; chain?: Chain | null; reactable?: string[]; feedback?: Feedback[] } = {},
+    chat: { ids?: string[]; images?: string[]; askers?: string[]; chain?: Chain | null; reactable?: string[]; feedback?: Feedback[]; teams?: string[]; scope?: TurnScope } = {},
   ): Promise<TurnResult> {
     const r = trigger.kind === 'routine' ? trigger : null;
     const about = r ? { trigger: r.run.trigger, routineId: r.routine.id, runId: r.run.id } : { trigger: 'chat' as const, ...(chat.chain ? { threadId: chat.chain.threadId } : {}) };
@@ -1991,6 +2032,12 @@ export class Engine {
         access,
         chain: chat.chain ?? null,
         connectors: Object.values(mcp.ids),
+        // What a re-run of this same work after a restart has too: a send or an item action it repeats is found, not made again.
+        work: r ? `run:${r.run.id}` : chat.ids?.length ? `chat:${chat.ids[0]}` : null,
+        // The teams whose work it answers, so the owner's Stop work on one reaches it.
+        teams: chat.teams ?? [],
+        // The item gens it may act on, as they were when it started (a chat turn's from what it answers).
+        scope: sandboxed ? null : (chat.scope ?? this.teams.turnScope(bot.id, [])),
         origin: {
           trigger: about.trigger,
           turnId: turn.id,

@@ -110,23 +110,35 @@ for (const outcome of ['cancelled', 'timed-out'] as const) {
   });
 }
 
-test('existing sign-in import requires paired consent and records the copy', async () => {
-  const { mkdirSync, readFileSync } = await import('node:fs');
-  const { cliHome } = await import('../src/cli-homes.ts');
+test('the old Codex sign-in copy refuses clearly and never writes a credential; brain homes say which sign-in Codex uses', async () => {
+  const { existsSync, mkdirSync, readFileSync, readdirSync } = await import('node:fs');
   const { tempDir } = await import('./helpers.ts');
-  const previous = process.env.CODEX_HOME;
-  process.env.CODEX_HOME = tempDir('botons-personal-auth-');
+  const previous = { CODEX_HOME: process.env.CODEX_HOME, CLAUDE_CONFIG_DIR: process.env.CLAUDE_CONFIG_DIR };
+  process.env.CODEX_HOME = tempDir('botons-account-codex-');
+  process.env.CLAUDE_CONFIG_DIR = tempDir('botons-account-claude-');
   writeFileSync(join(process.env.CODEX_HOME, 'auth.json'), '{"tokens":{"access_token":"test-only"}}');
   const s = await startServer();
   try {
     const view = await s.call('GET', '/api/brain-homes');
-    assert.equal(view.data.codex, true);
+    assert.deepEqual(view.data, { codex: false, claude: false, codexSignIn: 'account', codexInstructions: false });
+    assert.equal((await s.call('GET', '/api/brain-homes', undefined, null)).status, 401);
     assert.equal((await s.call('POST', '/api/brain-homes/codex/import', {consent:true}, null)).status, 401);
     assert.equal((await s.call('POST', '/api/brain-homes/codex/import', {})).status, 400);
-    assert.equal((await s.call('POST', '/api/brain-homes/codex/import', {consent:true})).status, 200);
-    const audit = JSON.stringify((await s.call('GET', '/api/audit')).data);
-    assert.ok(audit.includes('brain.signin_import_completed'));
-    assert.ok(!audit.includes('test-only'));
-    assert.equal((await s.call('GET', '/api/brain-homes')).data.codex, false);
-  } finally { await s.stop(); if (previous === undefined) delete process.env.CODEX_HOME; else process.env.CODEX_HOME = previous; }
+    const refused = await s.call('POST', '/api/brain-homes/codex/import', {consent:true});
+    assert.equal(refused.status, 409);
+    assert.match(JSON.stringify(refused.data), /Nothing to copy/);
+    assert.equal(existsSync(join(process.env.BOTONS_HOME!, 'cli', 'codex', 'auth.json')), false);
+    assert.deepEqual(readdirSync(process.env.CODEX_HOME), ['auth.json']);
+    assert.ok(!JSON.stringify((await s.call('GET', '/api/audit')).data).includes('test-only'));
+    // An explicit account home stays selected after logout, even with an unused Botons sign-in.
+    rmSync(join(process.env.CODEX_HOME, 'auth.json'));
+    mkdirSync(join(process.env.BOTONS_HOME!, 'cli', 'codex'), { recursive: true });
+    writeFileSync(join(process.env.BOTONS_HOME!, 'cli', 'codex', 'auth.json'), '{}');
+    writeFileSync(join(process.env.BOTONS_HOME!, 'cli', 'codex', 'AGENTS.md'), 'x');
+    assert.deepEqual((await s.call('GET', '/api/brain-homes')).data, { codex: false, claude: false, codexSignIn: 'account', codexInstructions: false });
+    assert.equal(readFileSync(join(process.env.BOTONS_HOME!, 'cli', 'codex', 'auth.json'), 'utf8'), '{}');
+  } finally {
+    await s.stop();
+    for (const [key, value] of Object.entries(previous)) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
+  }
 });

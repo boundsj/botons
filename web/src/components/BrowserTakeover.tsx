@@ -81,14 +81,16 @@ export function Takeover({ bot, onClose }: { bot: Bot; onClose: () => void }) {
   const view = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
   const keys = useRef<HTMLTextAreaElement>(null);
+  const pasteBox = useRef<HTMLInputElement>(null);
+  const pasteAttempt = useRef(0);
+  const [pasting, setPasting] = useState(false);
+  const [pasteFallback, setPasteFallback] = useState(false);
   const [handover, setHandover] = useState<BrowserHandover | null>(null);
   const [problem, setProblem] = useState<{ text: string; elsewhere?: { id: string; device: string } } | null>(null);
   const [page, setPage] = useState<{ url: string; title: string } | null>(null);
   const [address, setAddress] = useState('');
   const [editing, setEditing] = useState(false);
   const [siteError, setSiteError] = useState<{ url: string; status: number } | null>(null);
-  const [paused, setPaused] = useState<{ url: string; why: string; n: number } | null>(null);
-  const [details, setDetails] = useState(false);
   const [full, setFull] = useState(false);
   const [drawn, setDrawn] = useState(false);
   const [note, setNote] = useState<string | null>(null);
@@ -116,6 +118,7 @@ export function Takeover({ bot, onClose }: { bot: Bot; onClose: () => void }) {
   // being taken over as the owner leaves is ended as soon as it arrives.
   const closing = useRef(false);
   const finish = async () => {
+    clearPaste();
     closing.current = true;
     ended.current = true;
     const h = handoverRef.current;
@@ -123,6 +126,7 @@ export function Takeover({ bot, onClose }: { bot: Bot; onClose: () => void }) {
     onClose();
   };
   const endedHere = (text: string) => {
+    clearPaste();
     ended.current = true;
     setProblem({ text });
   };
@@ -207,7 +211,6 @@ export function Takeover({ bot, onClose }: { bot: Bot; onClose: () => void }) {
         setPage({ url: n.url, title: n.title });
         setSiteError((e) => (e && e.url === n.url ? e : null));
       } else if (n.type === 'site-error') setSiteError({ url: n.url, status: n.status });
-      else if (n.type === 'paused') setPaused((p) => ({ url: n.url, why: n.why, n: (p?.n ?? 0) + 1 }));
       else if (n.type === 'ended') endedHere(`${bot.name} has its browser back.`);
     };
     const streamOnce = async () => {
@@ -299,7 +302,53 @@ export function Takeover({ bot, onClose }: { bot: Bot; onClose: () => void }) {
   }
   const handoverRef = useRef<BrowserHandover | null>(null);
   handoverRef.current = handover;
-  const send = (i: Input) => sender.current!.push(i);
+  const send = (i: Input) => {
+    if (['open', 'resume', 'back', 'forward', 'reload'].includes(i.action)) clearPaste();
+    sender.current!.push(i);
+  };
+
+  // Clipboard access is requested only by Paste. The fallback handles the owner's paste event without keeping
+  // its text in an input or React state. Neither path presses Enter or submits the page's form.
+  const clearPaste = () => {
+    pasteAttempt.current++;
+    if (pasteBox.current) pasteBox.current.value = '';
+    setPasting(false);
+    setPasteFallback(false);
+  };
+  const pasteText = (text: string) => {
+    if (ended.current || !handoverRef.current?.byThisDevice) return;
+    if (text) setNote(null);
+    for (let i = 0; i < text.length; i += 5000) send({ action: 'paste', text: text.slice(i, i + 5000) });
+  };
+  const pasteClipboard = async () => {
+    clearPaste();
+    const attempt = pasteAttempt.current;
+    const id = handoverRef.current?.id;
+    if (!id || ended.current) return;
+    setPasting(true);
+    try {
+      if (!navigator.clipboard?.readText) throw new Error('Use the paste box');
+      const text = await navigator.clipboard.readText();
+      if (attempt !== pasteAttempt.current || ended.current || handoverRef.current?.id !== id) return;
+      if (text) { pasteText(text); focusKeys(); }
+      else { setNote('The clipboard has no text. Copy some text, then try Paste again.'); focusKeys(); }
+    } catch {
+      // HTTP and denied clipboard access both use an ordinary, user-initiated paste. Never echo browser errors.
+      if (attempt === pasteAttempt.current && !ended.current && handoverRef.current?.id === id) setPasteFallback(true);
+    } finally {
+      if (attempt === pasteAttempt.current) setPasting(false);
+    }
+  };
+  useLayoutEffect(() => {
+    if (pasteFallback) pasteBox.current?.focus({ preventScroll: true });
+  }, [pasteFallback]);
+  useEffect(() => {
+    clearPaste();
+    return () => {
+      pasteAttempt.current++;
+      if (pasteBox.current) pasteBox.current.value = '';
+    };
+  }, [handover?.id, page?.url]);
 
   // The page follows the view's size.
   useEffect(() => {
@@ -333,6 +382,7 @@ export function Takeover({ bot, onClose }: { bot: Bot; onClose: () => void }) {
   const buttons = ['left', 'middle', 'right'] as const;
   const onPointerDown = (e: ReactPointerEvent<HTMLCanvasElement>) => {
     if (!handover) return;
+    clearPaste();
     e.preventDefault();
     touchy.current = e.pointerType === 'touch';
     if (e.pointerType === 'touch') {
@@ -405,7 +455,9 @@ export function Takeover({ bot, onClose }: { bot: Bot; onClose: () => void }) {
     const onKeyDown = (e: KeyboardEvent) => {
       if (composing.current || e.isComposing) return;
       const a = keyAction(e);
-      if (a.kind === 'own' || a.kind === 'text' || a.kind === 'paste') return;
+      if (a.kind === 'paste') { e.stopPropagation(); return; }
+      if (a.kind === 'own' || a.kind === 'text') return;
+      clearPaste();
       e.preventDefault();
       e.stopPropagation();
       if (a.kind === 'copy') {
@@ -429,8 +481,11 @@ export function Takeover({ bot, onClose }: { bot: Bot; onClose: () => void }) {
     };
     const onPaste = (e: ClipboardEvent) => {
       e.preventDefault();
+      e.stopPropagation();
       const text = e.clipboardData?.getData('text/plain') ?? '';
-      for (let i = 0; i < text.length; i += 5000) send({ action: 'paste', text: text.slice(i, i + 5000) });
+      k.value = '';
+      clearPaste();
+      pasteText(text);
     };
     k.addEventListener('keydown', onKeyDown);
     k.addEventListener('beforeinput', onBeforeInput);
@@ -446,6 +501,7 @@ export function Takeover({ bot, onClose }: { bot: Bot; onClose: () => void }) {
     };
   }, [handover?.id]);
   const typeText = (text: string) => {
+    clearPaste();
     // Control characters are keys, not text: a tab or new line typed in one go is pressed.
     for (const part of text.split(/([\t\n])/)) {
       if (part === '\t') send({ action: 'key', key: 'Tab' });
@@ -520,6 +576,9 @@ export function Takeover({ bot, onClose }: { bot: Bot; onClose: () => void }) {
             onChange={(e) => setAddress(e.target.value)}
           />
         </form>
+        <button type="button" className="btn takeover-paste" disabled={!handover?.byThisDevice || !!problem || pasting} aria-expanded={pasteFallback} aria-controls="takeover-paste" onClick={() => void pasteClipboard()}>
+          {pasting ? 'Reading clipboard…' : 'Paste'}
+        </button>
         <button type="button" className="icon-btn round desktop-only" aria-label={full ? 'Exit full screen' : 'Full screen'} title={full ? 'Exit full screen' : 'Full screen'} onClick={() => setFull((f) => !f)}>
           <ExpandIcon full={full} />
         </button>
@@ -527,27 +586,34 @@ export function Takeover({ bot, onClose }: { bot: Bot; onClose: () => void }) {
           Done — hand back
         </button>
       </div>
-      <p className="takeover-line">
-        Only you drive it. {bot.name} waits until you hand back.{' '}
-        <button type="button" className="link-btn" aria-expanded={details} onClick={() => setDetails((d) => !d)}>
-          Details
-        </button>
-      </p>
-      {details && (
-        <p className="takeover-details">
-          What you type goes into the page and nowhere else: Botons doesn't keep, log or show it, and {bot.name} never sees it. Only this device drives the
-          browser, and only {bot.name}'s sites load. A sign-in stays in {bot.name}'s browser after you hand back. It hands back by itself after 10 quiet
-          minutes.
-        </p>
-      )}
+      {pasteFallback && <section id="takeover-paste" className="takeover-paste-box" aria-label="Paste into the page">
+        <label htmlFor="takeover-paste-text">Paste into the selected field</label>
+        <p id="takeover-paste-help">Use ⌘V, Ctrl+V, or your browser’s Paste menu here. Text goes straight to the field you selected in the page.</p>
+        <div className="takeover-paste-entry">
+          <input ref={pasteBox} id="takeover-paste-text" type="password" aria-describedby="takeover-paste-help" placeholder="Paste here" autoComplete="off" autoCapitalize="off" autoCorrect="off" spellCheck={false}
+            onPaste={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              const text = e.clipboardData.getData('text/plain');
+              e.currentTarget.value = '';
+              pasteText(text);
+              clearPaste();
+              focusKeys();
+            }}
+            onInput={(e) => { e.currentTarget.value = ''; }}
+            onBlur={(e) => { e.currentTarget.value = ''; }}
+            onKeyDown={(e) => {
+              e.stopPropagation();
+              if (e.key === 'Escape') { e.preventDefault(); clearPaste(); focusKeys(); }
+              if (e.key === 'Enter') e.preventDefault();
+            }} />
+          <button type="button" className="btn" onClick={() => { clearPaste(); focusKeys(); }}>Cancel</button>
+        </div>
+      </section>}
+      <p className="takeover-line">Only you control this browser. Done hands it back.</p>
       {siteError && (
         <p className="takeover-site" role="status">
           <strong>{host(siteError.url)}</strong> answered with an error ({siteError.status}). That's the site's own page, not Botons.
-        </p>
-      )}
-      {paused && (
-        <p className="takeover-paused" role="status" title={paused.why}>
-          Botons paused {paused.n > 1 ? `${paused.n} requests` : 'a request'} {host(paused.url)} sent on its own. What you click and type still goes.
         </p>
       )}
       <div className="takeover-view" ref={view}>

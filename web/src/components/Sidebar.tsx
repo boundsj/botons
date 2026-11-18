@@ -11,7 +11,8 @@ import { type BrainRest, brainRest, restText } from '../brains.ts';
 import { useWaiting } from './Approvals.tsx';
 import { avatarState, BotonAvatar } from './Avatar.tsx';
 import { ConfirmDialog, Dialog } from './Dialog.tsx';
-import { BookIcon, ChevronIcon, CloseIcon, GearIcon, MoreIcon, PauseIcon, PlayIcon, PlusIcon, SearchIcon, ShieldIcon, StarIcon } from './Icons.tsx';
+import { BookIcon, ChevronIcon, CloseIcon, GearIcon, MoreIcon, PauseIcon, PeopleIcon, PlayIcon, PlusIcon, SearchIcon, ShieldIcon, StarIcon } from './Icons.tsx';
+import { teamsBadge } from '../teams.ts';
 import { type MenuEntry, MenuButton } from './Menu.tsx';
 
 function preview(bot: Bot, rest: BrainRest | null = null): string {
@@ -49,7 +50,15 @@ function refocus(...selectors: string[]) {
 const rowMenu = (section: string, botId: string) => `[data-menu="${CSS.escape(`${section}:${botId}`)}"] button`;
 const sectionToggle = (key: string) => `[data-section="${CSS.escape(key)}"]`;
 
-export function Sidebar(props: { selectedId: string | null; onSelect: (id: string) => void; onNew: (groupId?: string) => void; onSettings: () => void; onSkills: () => void }) {
+export function Sidebar(props: {
+  selectedId: string | null;
+  /** Teams is what the main column shows. */
+  teamsOpen: boolean;
+  onSelect: (id: string) => void;
+  onNew: (groupId?: string) => void;
+  onSettings: () => void;
+  onSkills: () => void;
+}) {
   const bots = useStore((s) => s.bots);
   const layout = useStore((s) => s.sidebar);
   const settings = useStore((s) => s.settings);
@@ -224,6 +233,7 @@ export function Sidebar(props: { selectedId: string | null; onSelect: (id: strin
 
       <p className="sr-only" aria-live="polite" ref={said} />
       <div className="sidebar-scroll" data-drag-scroll>
+        <TeamsRow open={props.teamsOpen} />
 
         {bots.length === 0 && (
           <div className="sidebar-empty">
@@ -546,6 +556,29 @@ const PinnedTile = memo(function PinnedTile({ bot: b, selectedId, onSelect, wait
         </MenuButton>
       </span>
     </li>
+  );
+});
+
+/**
+ * Teams, always at the top of the list: a warn-tinted number when something there needs the owner, else a plain dot
+ * when only conversations are unread (both said in words to a screen reader). Its own subscription, so a change to
+ * the badge re-renders only this row.
+ */
+const TeamsRow = memo(function TeamsRow({ open }: { open: boolean }) {
+  const badge = teamsBadge(useStore((s) => s.teamsAttention));
+  return (
+    <a href="#/teams" className={cx('teams-row', open && 'selected')} aria-current={open ? 'page' : undefined} aria-label={badge ? `Teams, ${badge.label}` : undefined}>
+      <span className="teams-row-icon" aria-hidden="true">
+        <PeopleIcon size={20} />
+      </span>
+      <span className="teams-row-name">Teams</span>
+      {badge?.kind === 'count' && (
+        <span className="teams-count" title={badge.label}>
+          <span aria-hidden="true">{badge.count > 99 ? '99+' : badge.count}</span>
+        </span>
+      )}
+      {badge?.kind === 'dot' && <span className="teams-dot" title={badge.label} aria-hidden="true" />}
+    </a>
   );
 });
 

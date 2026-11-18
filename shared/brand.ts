@@ -69,39 +69,67 @@ export function logoSvg({ ink = 'currentColor', uid = 'logo', height }: { ink?: 
     + `<g transform="translate(70 6)">${wordmarkInner(ink)}</g></svg>`;
 }
 
+/** The app icon's own colors: a snow keycap on electric violet. */
+const KEY = {
+  violetLight: '#8a5cff', violet: '#3a159a', violetDeep: '#140842', sideTop: '#d7dce7', sideMid: '#b2b9ca', sideDeep: '#7e869c',
+  edge: '#4d5468', topDeep: '#e6eaf2', dish: '#dfe4ee', dishOut: '#f1f4f9', glassTop: '#151d38', glassDeep: '#070a15',
+  shadow: '#07021c', light: '#a8ff5c', cyanCore: '#dcfbff', sideFlat: '#a7afc2', topFlat: '#f4f6fb',
+} as const;
+
 /**
- * The app icon in a 100 × 100 square: the brand Boton lit up over a light-cycle floor. The Boton stays inside the
- * central circle a maskable icon keeps (radius 40), so any mask crops it well. `rounded` adds the corner radius for
- * the SVG icon; the PNGs for home screens are full-bleed and the system masks them.
+ * The app icon in a 100 × 100 square: a Boton as a chunky keycap seen from the front and a little above, tilted a
+ * touch, its face the key's legend lit on a glass inset, a status light in the corner, on electric violet. It is drawn
+ * in a 1024 grid and scaled down. `rounded` adds the corner radius for the SVG icon; the PNGs for home screens are
+ * full-bleed and the system masks them. `safe` draws the key smaller, inside the central circle a maskable icon keeps
+ * (radius 40), for the maskable PNGs; the violet still fills the square.
  */
-export function appIconInner(uid = 'ai', { rounded = true } = {}): string {
+export function appIconInner(uid = 'ai', { rounded = true, safe = false } = {}): string {
   const id = safeId(uid);
+  const { cyan, cheek } = BRAND;
   const square = rounded ? '<rect width="100" height="100" rx="22"/>' : '<rect width="100" height="100"/>';
-  const rays = [-30, -6, 18, 42, 66, 90, 114, 138].map((x) => `M${Math.round((50 + (x - 50) * 0.18) * 100) / 100} 64L${x} 100`).join('');
-  return `<defs><linearGradient id="${id}bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${BRAND.nightTop}"/><stop offset=".62" stop-color="${BRAND.nightMid}"/><stop offset="1" stop-color="${BRAND.void}"/></linearGradient>`
-    + `<radialGradient id="${id}gl" cx=".5" cy=".64" r=".5"><stop offset="0" stop-color="${BRAND.cyan}" stop-opacity=".35"/><stop offset="1" stop-color="${BRAND.cyan}" stop-opacity="0"/></radialGradient>`
-    + `<clipPath id="${id}sq">${square}</clipPath></defs>`
-    + `<g clip-path="url(#${id}sq)"><rect width="100" height="100" fill="url(#${id}bg)"/>`
-    + `<path d="M0 64H100M0 69H100M0 76H100M0 86H100M0 99H100${rays}" stroke="${BRAND.cyan}" stroke-opacity=".32" stroke-width=".7" fill="none"/>`
-    + `<ellipse cx="50" cy="86" rx="36" ry="9" fill="url(#${id}gl)"/>`
-    + `<g transform="translate(14 13) scale(.72)">${botonBody(`${id}b`)}</g></g>`;
+  const blur = (name: string, sd: number) => `<filter id="${id}${name}" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="${sd}"/></filter>`;
+  const side = 'M246 300H778Q848 300 856 370L874 816Q878 892 802 892H222Q146 892 150 816L168 370Q176 300 246 300Z';
+  const mouth = 'M470 540Q512 570 554 540';
+  const key = `<ellipse cx="530" cy="900" rx="372" ry="58" fill="${KEY.shadow}" opacity=".75" filter="url(#${id}s)"/>`
+    + '<g transform="rotate(-5 512 560)">'
+    + `<path d="${side}" fill="url(#${id}sd)"/><path d="${side}" fill="none" stroke="${KEY.edge}" stroke-width="6" opacity=".5"/>`
+    + '<path d="M196 800Q512 846 828 800" stroke="#fff" stroke-width="7" stroke-linecap="round" fill="none" opacity=".18"/>'
+    + `<rect x="228" y="206" width="568" height="566" rx="128" fill="url(#${id}tp)"/><rect x="228" y="206" width="568" height="566" rx="128" fill="url(#${id}ds)"/>`
+    + '<path d="M300 222H724" stroke="#fff" stroke-width="10" stroke-linecap="round" opacity=".9"/>'
+    + `<rect x="296" y="290" width="432" height="312" rx="92" fill="url(#${id}gl)"/><rect x="296" y="290" width="432" height="312" rx="92" fill="none" stroke="${cyan}" stroke-width="7" opacity=".5"/>`
+    + '<path d="M346 318H452" stroke="#fff" stroke-width="12" stroke-linecap="round" opacity=".15"/>'
+    + `<g fill="${cyan}"><rect x="402" y="370" width="60" height="118" rx="30" opacity=".45" filter="url(#${id}g)"/><rect x="562" y="370" width="60" height="118" rx="30" opacity=".45" filter="url(#${id}g)"/>`
+    + '<rect x="408" y="376" width="48" height="106" rx="24"/><rect x="568" y="376" width="48" height="106" rx="24"/></g>'
+    + `<g fill="none" stroke-linecap="round"><path d="${mouth}" stroke="${cyan}" stroke-width="36" opacity=".5" filter="url(#${id}g)"/><path d="${mouth}" stroke="${cyan}" stroke-width="20"/><path d="${mouth}" stroke="${KEY.cyanCore}" stroke-width="6" opacity=".9"/></g>`
+    + `<g fill="${cheek}" opacity=".6"><rect x="332" y="530" width="50" height="20" rx="10"/><rect x="642" y="530" width="50" height="20" rx="10"/></g>`
+    + `<circle cx="744" cy="270" r="37.4" fill="${KEY.light}" opacity=".45" filter="url(#${id}g)"/><circle cx="744" cy="270" r="17" fill="${KEY.light}"/><circle cx="739.24" cy="264.9" r="5.78" fill="#fff" opacity=".85"/>`
+    + '</g>';
+  return `<defs><linearGradient id="${id}bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${KEY.violetLight}"/><stop offset=".5" stop-color="${KEY.violet}"/><stop offset="1" stop-color="${KEY.violetDeep}"/></linearGradient>`
+    + `<radialGradient id="${id}hl" cx="22%" cy="16%" r="60%"><stop offset="0" stop-color="#fff" stop-opacity=".22"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></radialGradient>`
+    + `<linearGradient id="${id}sd" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${KEY.sideTop}"/><stop offset=".55" stop-color="${KEY.sideMid}"/><stop offset="1" stop-color="${KEY.sideDeep}"/></linearGradient>`
+    + `<linearGradient id="${id}tp" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff"/><stop offset="1" stop-color="${KEY.topDeep}"/></linearGradient>`
+    + `<radialGradient id="${id}ds" cx="50%" cy="56%" r="58%"><stop offset="0" stop-color="${KEY.dish}"/><stop offset=".75" stop-color="${KEY.dishOut}" stop-opacity="0"/></radialGradient>`
+    + `<linearGradient id="${id}gl" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${KEY.glassTop}"/><stop offset="1" stop-color="${KEY.glassDeep}"/></linearGradient>`
+    + `${blur('g', 18)}${blur('s', 28)}<clipPath id="${id}sq">${square}</clipPath></defs>`
+    + `<g clip-path="url(#${id}sq)"><g transform="scale(.09765625)"><rect width="1024" height="1024" fill="url(#${id}bg)"/><rect width="1024" height="1024" fill="url(#${id}hl)"/>`
+    + (safe ? `<g transform="translate(512 520) scale(.76) translate(-512 -520)">${key}</g>` : key)
+    + '</g></g>';
 }
 
-/** The favicon in a 32 × 32 square: a button, a dark display, two lit eyes and the antenna's light, so it holds at 16 px. */
+/** The favicon in a 32 × 32 square: the keycap on violet, its dark display and two lit eyes, so it holds at 16 px. */
 export function faviconInner(): string {
   const { cyan, glass } = BRAND;
-  return `<rect width="32" height="32" rx="8" fill="${glass}"/>`
-    + '<circle cx="16" cy="18.4" r="11.2" fill="#9aa6b8"/>'
-    + `<circle cx="16" cy="17" r="11.2" fill="${BRAND.shell}" stroke="${cyan}" stroke-width="1"/>`
-    + `<rect x="8.4" y="11.6" width="15.2" height="10" rx="5" fill="${glass}"/>`
-    + `<circle cx="12.6" cy="16.2" r="1.9" fill="${cyan}"/><circle cx="19.4" cy="16.2" r="1.9" fill="${cyan}"/>`
-    + `<circle cx="16" cy="3.4" r="2" fill="${cyan}"/>`;
+  return `<rect width="32" height="32" rx="7" fill="${KEY.violet}"/>`
+    + `<rect x="4.4" y="8.4" width="23.2" height="20.4" rx="5.6" fill="${KEY.sideFlat}"/>`
+    + `<rect x="6" y="5.4" width="20" height="19.2" rx="5" fill="${KEY.topFlat}"/>`
+    + `<rect x="8.4" y="8.2" width="15.2" height="11" rx="3.6" fill="${glass}"/>`
+    + `<rect x="11.6" y="10.4" width="2.6" height="5.2" rx="1.3" fill="${cyan}"/><rect x="17.8" y="10.4" width="2.6" height="5.2" rx="1.3" fill="${cyan}"/>`;
 }
 
 /** Whole SVG documents for the files in web/public (scripts/icons.ts writes them). */
 export function faviconSvg(): string {
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">${faviconInner()}</svg>\n`;
 }
-export function appIconSvg({ rounded = true } = {}): string {
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">${appIconInner('i', { rounded })}</svg>\n`;
+export function appIconSvg({ rounded = true, safe = false } = {}): string {
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">${appIconInner('i', { rounded, safe })}</svg>\n`;
 }

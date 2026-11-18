@@ -9,6 +9,7 @@ import { sharedImage } from '../files.ts';
 import { firstUnreadId } from '../lists.ts';
 import { brainRest } from '../brains.ts';
 import { actions, history, useStore } from '../state.ts';
+import { teamsHash } from '../teams.ts';
 import { clip, clock, costText, cx, dateTime, dayLabel, duration, localDay, timeMarks, usageText } from '../util.ts';
 import { ApprovalCard, DecisionChip, type RowBot, WaitingBar } from './Approvals.tsx';
 import { PendingFiles, SentFiles, useAttachments } from './Attachments.tsx';
@@ -145,7 +146,17 @@ function nextAnchor(scroller: HTMLElement, prev: Anchor | null): Anchor | null {
   return next;
 }
 
-export function Chat(props: { bot: Bot; covered?: boolean; onOpenPanel: (tab: PanelTab, focus?: string) => void; onOpenBot: (botId: string) => void; onBack: () => void }) {
+export function Chat(props: {
+  bot: Bot;
+  covered?: boolean;
+  /** Open the chat at this message (from Teams: an escalation's card, a request in a thread). */
+  focusId?: string | null;
+  /** The message has been shown, or found not to be in the chat. */
+  onFocused?: (botId: string) => void;
+  onOpenPanel: (tab: PanelTab, focus?: string) => void;
+  onOpenBot: (botId: string) => void;
+  onBack: () => void;
+}) {
   const { bot } = props;
   // Behind the panel or a dialog, new replies reach the screen but not the owner.
   const modalOpen = useModalOpen();
@@ -209,6 +220,46 @@ export function Chat(props: { bot: Bot; covered?: boolean; onOpenPanel: (tab: Pa
   useEffect(() => {
     actions.loadApprovals(bot.id).catch(() => {});
   }, [bot.id]);
+
+  // Opened at a message: read back page by page until it is loaded (a bounded number), then hold it in view with a
+  // mark before it (focused for a screen reader, and lit for a moment). One the chat leaves out as quiet is said so.
+  const [focusRow, setFocusRow] = useState<{ botId: string; id: string } | null>(null);
+  const focusEl = useRef<HTMLSpanElement>(null);
+  const focusPages = useRef(0);
+  const focusId = props.focusId ?? null;
+  useEffect(() => {
+    if (!focusId || !list || list.loading || list.loadingEarlier) return;
+    const done = () => {
+      focusPages.current = 0;
+      latest.current.onFocused?.(bot.id);
+    };
+    const found = messages.find((m) => m.id === focusId);
+    if (found) {
+      if (shown.includes(found)) setFocusRow({ botId: bot.id, id: focusId });
+      else showToast({ kind: 'info', text: `That message was part of a quiet turn, so ${bot.name}'s chat doesn't show it. Teams keeps the conversation.` }, 8000);
+      return done();
+    }
+    if (list.hasMore && !list.error && focusPages.current < 10) {
+      focusPages.current++;
+      rememberAnchor();
+      void actions.loadEarlier(bot.id);
+      return;
+    }
+    showToast({ kind: 'info', text: `Couldn't find that message in ${bot.name}'s chat: it may have been cleared.` }, 8000);
+    done();
+  }, [focusId, list, messages, shown, bot.id, bot.name]);
+  const focusedRow = focusRow?.botId === bot.id ? focusRow.id : null;
+  useLayoutEffect(() => {
+    const mark = focusEl.current;
+    const row = mark?.nextElementSibling;
+    if (!focusedRow || !mark || !row) return;
+    stick.current = false;
+    row.scrollIntoView({ block: 'center' });
+    mark.focus({ preventScroll: true });
+    rememberAnchor();
+    const t = setTimeout(() => setFocusRow(null), 4000);
+    return () => clearTimeout(t);
+  }, [focusedRow]);
 
   const lastId = messages.at(-1)?.id;
   const markIfReading = () => {
@@ -432,6 +483,11 @@ export function Chat(props: { bot: Bot; covered?: boolean; onOpenPanel: (tab: Pa
                     {clock(m.createdAt)}
                   </time>
                 )}
+                {m.id === focusedRow && (
+                  <span className="focus-mark sr-only" data-edge="" tabIndex={-1} ref={focusEl}>
+                    The message you opened:
+                  </span>
+                )}
                 <MessageView bot={rowBot} m={m} grouped={grouped(prev, m)} onOpenRoutine={openRoutine} onOpenFile={openFile} onOpenBot={openBot} />
               </Fragment>
             );
@@ -642,7 +698,37 @@ const MessageView = memo(function MessageView({ bot, m, grouped, onOpenRoutine, 
       </div>
     );
   }
-  if (m.role === 'event' && m.meta?.kind === 'card.posted') return timed(<TranscriptCard bot={bot} m={m} onOpenFile={onOpenFile} onOpenRoutine={onOpenRoutine} />);
+  if (m.role === 'event' && m.meta?.kind === 'card.posted') {
+    // An escalation's card: the item it is about is one link away.
+    const item = m.meta.itemId;
+    return timed(
+      <>
+        <TranscriptCard bot={bot} m={m} onOpenFile={onOpenFile} onOpenRoutine={onOpenRoutine} />
+        {item && (
+          <a className="card-team-link" href={teamsHash({ view: 'item', itemId: item })}>
+            View in Teams{m.meta.teamName ? `: ${m.meta.teamName}` : ''}
+          </a>
+        )}
+      </>,
+    );
+  }
+  if (m.meta?.kind === 'team.notice') return timed(<TeamNotice m={m} />);
+  // The server woke the lead about its team's work: a label above the reply, like a routine run's.
+  if (m.role === 'user' && m.meta?.kind === 'team.checkin') {
+    return timed(
+      <div className="event-chip wake-label" title={`A check-in on the team's work, from the Botons server · ${dateTime(m.createdAt)}`}>
+        <span>Team check-in:</span>
+        {m.meta.teamId ? (
+          <a className="chip-link" href={teamsHash({ view: 'team', teamId: m.meta.teamId, tab: 'work' })}>
+            {m.meta.teamName ?? 'the team'}
+          </a>
+        ) : (
+          <span>{m.meta.teamName ?? 'the team'}</span>
+        )}
+        <ChipTime iso={m.createdAt} />
+      </div>,
+    );
+  }
   // A decision is a chip: the user message that starts the follow-up turn, or an event (a skill's says what it did in its text).
   if (m.meta?.kind === 'approval.decided' && (m.role === 'user' || (m.role === 'event' && !m.meta.skillName))) return timed(<DecisionChip m={m} />);
   if (m.role === 'user' && m.meta?.kind === 'reaction.followup') return timed(<FollowUpChip m={m} bot={bot} />);
@@ -797,7 +883,10 @@ function EventChip({ bot, m, onOpenRoutine, onOpenFile, onOpenBot }: Omit<RowPro
 function OtherEventChip({ bot, m, onOpenRoutine, onOpenFile, onOpenBot }: Omit<RowProps, 'grouped'>) {
   const image = sharedImage(m);
   const to = useBoton(m.meta?.kind === 'ask.sent' ? m.meta.toBotId : undefined);
-  const label = m.meta?.kind === 'notify.sent' && m.meta.priority === 'high' ? 'Sent an urgent notification' : (CHIP_LABEL[m.meta?.kind ?? ''] ?? m.text);
+  const label = m.meta?.kind === 'notify.sent' && m.meta.priority === 'high' ? 'Sent an urgent notification' : m.meta?.kind === 'team.update' ? clip(m.text, 90) : (CHIP_LABEL[m.meta?.kind ?? ''] ?? m.text);
+  // Only a thread the server keeps (asks from before Teams have a thread id but no thread).
+  const thread = m.meta?.kind === 'ask.sent' && m.meta.teamMessageId ? m.meta.threadId : undefined;
+  const item = m.meta?.kind === 'team.update' ? m.meta.itemId : undefined;
   const quote = chipQuote(m);
   return (
     <div className={cx('event-chip', (m.meta?.kind === 'ask.refused' || m.meta?.kind === 'approval.expired' || m.meta?.kind === 'instructions.restored' || m.meta?.kind === 'connector.reconnect') && 'warn')} title={quote ?? dateTime(m.createdAt)}>
@@ -825,6 +914,16 @@ function OtherEventChip({ bot, m, onOpenRoutine, onOpenFile, onOpenBot }: Omit<R
         </button>
       )}
       {quote && <span className="chip-quote">“{clip(quote, 60)}”</span>}
+      {item && (
+        <a className="chip-link" href={teamsHash({ view: 'item', itemId: item })}>
+          {m.meta?.itemTitle ? clip(m.meta.itemTitle, 60) : 'Open the item'}
+        </a>
+      )}
+      {thread && (
+        <a className="chip-link" href={teamsHash({ view: 'thread', threadId: thread, messageId: null })}>
+          View thread
+        </a>
+      )}
       {(m.meta?.kind === 'turn.stopped' || m.meta?.kind === 'turn.interrupted') && !!m.meta.steps && <StepsToggle count={m.meta.steps} load={messageSteps(m.id)} />}
       {image && (
         <div className="chip-image">
@@ -839,6 +938,9 @@ function BotonMessage({ m, grouped, onOpenBot }: { m: Message; grouped: boolean;
   const sender = useBoton(m.meta?.fromBotId);
   const name = sender?.name ?? m.meta?.fromBotName ?? 'Another Boton';
   const reveal = useTimeReveal();
+  // Only a thread the server keeps (asks from before Teams have a thread id but no thread).
+  const thread = m.meta?.teamMessageId ? m.meta.threadId : undefined;
+  const item = m.meta?.itemId;
   return (
     <div className={cx('msg Boton', grouped && 'grouped', reveal.shown && 'show-time')} onClick={reveal.onClick}>
       {!grouped && (
@@ -852,6 +954,12 @@ function BotonMessage({ m, grouped, onOpenBot }: { m: Message; grouped: boolean;
             <span>{name}</span>
           )}
           <span className="muted">{m.meta?.kind === 'ask.reply' ? 'replied to the ask' : 'asks'}</span>
+          {item && (
+            <a className="chip-link msg-item" href={teamsHash({ view: 'item', itemId: item })}>
+              {m.meta?.itemTitle ? clip(m.meta.itemTitle, 60) : 'the item'}
+            </a>
+          )}
+          {m.meta?.stale && <span className="muted">· about a replaced assignment</span>}
         </div>
       )}
       <div className="bubble" title={`${dateTime(m.createdAt)} · from ${name}, another Boton`}>
@@ -860,7 +968,31 @@ function BotonMessage({ m, grouped, onOpenBot }: { m: Message; grouped: boolean;
       <div className="msg-foot">
         <MessageTime iso={m.createdAt} />
         <CopyButton m={m} />
+        {thread && (
+          <a className="msg-thread-link" href={teamsHash({ view: 'thread', threadId: thread, messageId: null })}>
+            View thread
+          </a>
+        )}
       </div>
+    </div>
+  );
+}
+
+/** A team's own record in its lead's chat (finished, with what it did; paused by a budget or for no lead). */
+function TeamNotice({ m }: { m: Message }) {
+  const team = m.meta?.teamId;
+  return (
+    <div className="team-notice" role="note" aria-label={m.meta?.teamName ? `Team ${m.meta.teamName}` : 'Team'}>
+      <div className="team-notice-head">
+        <span>{m.meta?.teamName ? `Team ${m.meta.teamName}` : 'Team'}</span>
+        <ChipTime iso={m.createdAt} />
+      </div>
+      <Markdown text={m.text} />
+      {team && (
+        <a className="link-btn" href={teamsHash({ view: 'team', teamId: team, tab: 'team' })}>
+          View in Teams
+        </a>
+      )}
     </div>
   );
 }

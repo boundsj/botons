@@ -163,3 +163,15 @@ test('wake labels in the activity list name what woke the Boton, never an id', (
   for (const kind of ['memory.saved', 'memory.forgotten', 'file.shared', 'notify.sent', 'ask.sent', 'routine.created', 'routine.updated', 'routine.paused', 'routine.resumed', 'routine.deleted', 'skill.created', 'skill.updated'])
     assert.ok(TURN_ACTIVITY.has(kind), kind);
 });
+
+test("a lead's check-in is labelled with its team; item chips go with a quiet turn", () => {
+  const checkin = msg('user', 'Check-in on team Atlas', { kind: 'team.checkin', teamId: 'team_atlas', teamName: 'Atlas' });
+  assert.ok(isAutomaticWake(checkin));
+  assert.deepEqual(wakeLabel(checkin), { text: 'Team check-in: Atlas', detail: 'Team team_atlas', warn: false });
+  assert.equal(wakeLabel(msg('user', 'x', { kind: 'team.checkin' })).text, 'Team check-in');
+  assert.ok(TURN_ACTIVITY.has('team.update'));
+  const chip = msg('event', 'Started Schema review', { kind: 'team.update', quiet: true, itemId: 'item_a' });
+  assert.ok(quietMessageIds([checkin, chip]).has(chip.id));
+  // A team's own notices always show.
+  assert.equal(quietMessageIds([msg('event', 'Team Atlas paused', { kind: 'team.notice', quiet: true })]).size, 0);
+});

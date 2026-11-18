@@ -68,7 +68,7 @@ export class BrowserHandoffs {
     log.info('browser handoff requested', { botId, handoffId: message.id, taken: !!takenBy || undefined });
     if (!takenBy) {
       void this.#deps
-        .push?.({ bot: { id: bot.id, name: bot.name }, reason: 'approval', detail: `Your turn in ${bot.name}'s browser: ${reason}`, generic: `Your turn in ${bot.name}'s browser.`, priority: 'high' })
+        .push?.({ bot: { id: bot.id, name: bot.name }, reason: 'approval', detail: `Your turn in ${bot.name}'s browser: ${reason}`, generic: `Your turn in ${bot.name}'s browser.`, priority: 'high', messageId: message.id })
         ?.catch((err) => log.warn('could not push a browser handoff', { botId, err }));
     }
     return { message, already: null };

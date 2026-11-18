@@ -12,7 +12,6 @@ try {
   s.app.store.updateSettings({ownerName:'Sam'});
   const page = await browser.newPage({viewport:{width:1280,height:900}});
   await page.addInitScript(token=>localStorage.setItem('botons.deviceToken',token),s.token);
-  await page.route('**/api/brain-homes', route=>route.fulfill({json:{codex:true,claude:false}}));
   await page.route('**/api/providers*',async route=>{
    const response=await route.fetch(); const data=await response.json();
    const mock=data.find((p: any)=>p.id==='mock');
@@ -31,12 +30,6 @@ try {
    await page.getByText('✓ Signed in',{exact:true}).waitFor();
    assert.equal(await page.getByText(/Not available on this server/).count(),0);
    await page.getByText('Awake: a brain is ready, so your Botons can think.',{exact:true}).waitFor();
-   await page.getByText('Botons can use your existing Codex sign-in, or you can sign in just for Botons.',{exact:true}).waitFor();
-   const migration=page.getByRole('region',{name:'Botons sign-in'});
-   assert.equal(await migration.getByText(/This choice is recorded in the audit log/).isVisible(),false);
-   await migration.getByText('Details',{exact:true}).click();
-   assert.equal(await migration.getByText(/This choice is recorded in the audit log/).isVisible(),true);
-   await migration.getByText('Details',{exact:true}).click();
    await page.screenshot({path:join(out,`brains-${failing?'unavailable':'available'}-desktop.png`),fullPage:true});
    await page.setViewportSize({width:390,height:844});
    await page.screenshot({path:join(out,`brains-${failing?'unavailable':'available'}-phone.png`),fullPage:true});

@@ -1,6 +1,7 @@
 import { serverCommand } from './install-type.ts';
 import { managedBin, managedRoot } from './managed-clis.ts';
 import { execFileSync } from 'node:child_process';
+import { createPrivateKey } from 'node:crypto';
 import { accessSync, constants, lstatSync, mkdirSync, readFileSync, realpathSync } from 'node:fs';
 import { isIP } from 'node:net';
 import { homedir, hostname } from 'node:os';
@@ -43,6 +44,17 @@ export interface CallbacksConfig {
   retryDelaysMs: number[];
 }
 
+/** The Apple Push Notification service settings (BOTONS_APNS_*): all four, or none. The key itself is read from `keyFile` when a token is made, never kept here. */
+export interface ApnsConfig {
+  /** Absolute path of the .p8 key. */
+  keyFile: string;
+  /** Apple's 10-character key id and team id. */
+  keyId: string;
+  teamId: string;
+  /** The app's bundle identifier. */
+  topic: string;
+}
+
 export interface Config {
   home: string;
   /** Why `home` is that folder (see chooseHome). */
@@ -82,6 +94,8 @@ export interface Config {
   botonBinDir: string;
   enableMock: boolean;
   schedulerIntervalMs: number;
+  /** How often the team supervisor looks at teams' work (BOTONS_TEAM_SUPERVISOR_MS). */
+  teamSupervisorMs: number;
   claudeBin: string;
   codexBin: string;
   drainMs: number;
@@ -104,13 +118,15 @@ export interface Config {
   asksPerHour: number;
   /** BOTONS_CONTAINER=1 (the Docker image): callers arrive through the bridge network or a sidecar. */
   container: boolean;
+  /** Push to the native app (BOTONS_APNS_*); null when none of the four is set. */
+  apns: ApnsConfig | null;
   /**
    * The managed browser: the Chromium to run (BOTONS_BROWSER_PATH; empty: look for one), whether it shows a window
    * (BOTONS_BROWSER_HEADED=1, on a desktop host), whether Chromium's own sandbox is on (BOTONS_BROWSER_SANDBOX=0
    * turns it off, where a host can't start it), and loopback or private host:port addresses a Workspace
    * Boton's allowed sites may name (BOTONS_BROWSER_ALLOW; a Full computer Boton may name any).
    */
-  browser: { path: string; headed: boolean; sandbox: boolean; allowPrivate: string[] };
+  browser: { path: string; headed: boolean; sandbox: boolean; allowPrivate: string[]; apnsDownloadDir?: string };
 }
 
 /** The server reports every bad setting at once and exits 78 (EX_CONFIG). */
@@ -214,6 +230,46 @@ export const isBotonsSetting = (name: string) => /^BOTONS?_[A-Z0-9_]+$/.test(nam
 function read(env: NodeJS.ProcessEnv, name: string): string | undefined {
   const v = env[name]?.trim();
   return v ? v : undefined;
+}
+
+const APNS_NAMES = ['BOTONS_APNS_KEY_FILE', 'BOTONS_APNS_KEY_ID', 'BOTONS_APNS_TEAM_ID', 'BOTONS_APNS_TOPIC'] as const;
+
+/**
+ * Push to the native app: all four settings or none. The key file must hold an EC P-256 private key (Apple's .p8);
+ * what is wrong is named, never what the file holds.
+ */
+function apnsSettings(env: NodeJS.ProcessEnv, errors: string[]): ApnsConfig | null {
+  const [keyFile, keyId, teamId, topic] = APNS_NAMES.map((n) => read(env, n));
+  const missing = APNS_NAMES.filter((n) => read(env, n) === undefined);
+  if (missing.length === APNS_NAMES.length) return null;
+  if (missing.length) {
+    errors.push(`${missing.join(', ')} ${missing.length > 1 ? 'are' : 'is'} not set: push to the app needs all of ${APNS_NAMES.join(', ')}, or none of them`);
+    return null;
+  }
+  let ok = true;
+  const bad = (msg: string) => {
+    errors.push(msg);
+    ok = false;
+  };
+  if (!/^[A-Z0-9]{10}$/.test(keyId!)) bad('BOTONS_APNS_KEY_ID must be the key\'s 10-character id from Apple (capital letters and digits)');
+  if (!/^[A-Z0-9]{10}$/.test(teamId!)) bad('BOTONS_APNS_TEAM_ID must be the 10-character team id from Apple (capital letters and digits)');
+  if (!/^[A-Za-z0-9][A-Za-z0-9.-]{0,154}$/.test(topic!)) bad('BOTONS_APNS_TOPIC must be the app\'s bundle identifier, such as com.example.botons');
+  const file = resolve(keyFile!);
+  let pem: Buffer | null = null;
+  try {
+    pem = readFileSync(file);
+  } catch (err) {
+    bad(`BOTONS_APNS_KEY_FILE cannot be read (${(err as NodeJS.ErrnoException).code ?? 'error'}): it must be the .p8 file Apple gives for the key`);
+  }
+  if (pem) {
+    try {
+      const key = createPrivateKey(pem);
+      if (key.asymmetricKeyType !== 'ec' || key.asymmetricKeyDetails?.namedCurve !== 'prime256v1') bad('BOTONS_APNS_KEY_FILE must hold an EC P-256 private key (the .p8 file Apple gives for the key)');
+    } catch {
+      bad('BOTONS_APNS_KEY_FILE does not hold a private key in PEM form (the .p8 file Apple gives for the key)');
+    }
+  }
+  return ok ? { keyFile: file, keyId: keyId!, teamId: teamId!, topic: topic! } : null;
 }
 
 /** scripts/install-service.ts sets the unit's TimeoutStopSec above it. */
@@ -349,10 +405,12 @@ export function loadConfig(given: NodeJS.ProcessEnv = process.env, probe: () => 
     } else oauthPublicUrl = u.origin;
   }
 
+  const apns = apnsSettings(env, errors);
   const maxConcurrentTurns = int('BOTONS_MAX_CONCURRENT', 3, 1, 64);
   const turnTimeoutMs = duration('BOTONS_TURN_TIMEOUT_MS', 20 * 60_000, 1000, 24 * 3_600_000);
   const approvalWaitMs = Math.min(duration('BOTONS_APPROVAL_WAIT', 5 * 60_000, 1000, 3_600_000), Math.floor(turnTimeoutMs / 2));
   const schedulerIntervalMs = duration('BOTONS_SCHEDULER_MS', 10_000, 50, 3_600_000);
+  const teamSupervisorMs = duration('BOTONS_TEAM_SUPERVISOR_MS', 30_000, 50, 3_600_000);
   const drainMs = duration('BOTONS_DRAIN_MS', DEFAULT_DRAIN_MS, 0, 30 * 60_000);
   const ssePingMs = duration('BOTONS_SSE_PING_MS', 25_000, 1000, 3_600_000);
   const routineRunsPerHour = int('BOTONS_ROUTINE_RUNS_PER_HOUR', 30, 1, 100_000);
@@ -367,6 +425,7 @@ export function loadConfig(given: NodeJS.ProcessEnv = process.env, probe: () => 
   if (errors.length) throw new ConfigError(errors);
 
   const workspacesDir = join(home, 'workspaces');
+  const apnsDownloadDir = read(env, 'BOTONS_BROWSER_APNS_DOWNLOAD_DIR');
   const sharedDir = join(home, 'shared');
   if (opts.create !== false) {
     try {
@@ -410,11 +469,12 @@ export function loadConfig(given: NodeJS.ProcessEnv = process.env, probe: () => 
     botonBinDir: resolve(here, '../bin'),
     enableMock: env.BOTONS_ENABLE_MOCK === '1',
     schedulerIntervalMs,
+    teamSupervisorMs,
     claudeBin: managedBin(home, 'claude-cli', read(env, 'BOTONS_CLAUDE_BIN') ?? 'claude', managedRoot(env.HOME), env.PATH),
     codexBin: managedBin(home, 'codex-cli', read(env, 'BOTONS_CODEX_BIN') ?? 'codex', managedRoot(env.HOME), env.PATH),
     drainMs,
     build: buildId(),
-    privatePaths: parsePrivatePaths(env.BOTONS_PRIVATE_PATHS),
+    privatePaths: [...parsePrivatePaths(env.BOTONS_PRIVATE_PATHS), ...(apnsDownloadDir ? [resolve(apnsDownloadDir)] : [])],
     ssePingMs,
     authEnabled: !AUTH_OFF.has(auth),
     ownerLogin: read(env, 'BOTONS_OWNER_LOGIN') ?? null,
@@ -430,10 +490,11 @@ export function loadConfig(given: NodeJS.ProcessEnv = process.env, probe: () => 
       retryDelaysMs: [5_000, 30_000, 120_000],
     },
     oauth: { publicUrl: oauthPublicUrl, allow: oauthAllow },
-    browser: { path: read(env, 'BOTONS_BROWSER_PATH') ?? '', headed: env.BOTONS_BROWSER_HEADED === '1', sandbox: env.BOTONS_BROWSER_SANDBOX !== '0', allowPrivate: browserAllow },
+    browser: { path: read(env, 'BOTONS_BROWSER_PATH') ?? '', headed: env.BOTONS_BROWSER_HEADED === '1', sandbox: env.BOTONS_BROWSER_SANDBOX !== '0', allowPrivate: browserAllow, ...(apnsDownloadDir ? { apnsDownloadDir: resolve(apnsDownloadDir) } : {}) },
     asksPerPairPerHour,
     asksPerHour,
     container: env.BOTONS_CONTAINER === '1',
+    apns,
   };
   // Only a candidate until the server has bound it, but at startup it nearly always binds.
   applyTailnet(cfg, cfg.tailscale.initial);

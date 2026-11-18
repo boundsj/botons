@@ -38,14 +38,8 @@ const FOLLOW_UP_MAX = 20_000;
 const NOTE_MAX = 2000;
 const TOOL_INPUT_MAX = 64_000;
 
-/** The tool_key of a request the managed browser holds: never the key of a CLI's tool call (those are JSON). */
+/** Identifies stored browser network request records, which cannot authorize actions. */
 export const BROWSER_KEY = 'browser-op:';
-
-/** What the approvals need of the managed browser (browser.ts): whether it still holds a request, and to hear of its decision. */
-export interface BrowserHolds {
-  holds(approvalId: string): boolean;
-  decided(approvalId: string): void;
-}
 
 /** Where a request comes from when no turn of the Boton is running (a token minted by hand, say). */
 const NO_TURN: ApprovalOrigin = { trigger: 'chat', turnId: null, routineId: null, routineName: null, runId: null, sandboxed: false, askedBy: [] };
@@ -108,7 +102,6 @@ export class Approvals {
   #waiters = new Map<string, string>();
   skills!: Skills;
   connectors!: Connectors;
-  browser: BrowserHolds | null = null;
 
   constructor(opts: {
     store: Store;
@@ -126,6 +119,8 @@ export class Approvals {
     this.#origin = opts.origin;
     this.#access = opts.access;
     this.#waitMs = opts.waitMs;
+    // Network request records do not authorize a browser action.
+    this.#db.prepare("update approvals set status = 'cancelled', in_turn = 0, decided_at = ? where tool_key like 'browser-op:%' and status = 'pending'").run(nowIso());
   }
 
   #toApproval(r: Row): Approval {
@@ -350,6 +345,8 @@ export class Approvals {
         detail: `Asks for your approval: ${a.title} (from ${originText(a.from)})${a.followUp ? `. Then: ${a.followUp.replace(/\s+/g, ' ')}` : ''}`,
         generic: `Needs your approval (from ${originText(a.from, false)}).`,
         priority: 'high',
+        approvalId: a.id,
+        ...(a.messageId ? { messageId: a.messageId } : {}),
       })
       .then((deliveries) => {
         if (!deliveries.length || !this.find(a.id)) return;
@@ -632,93 +629,10 @@ export class Approvals {
     return this.#emit(a.id);
   }
 
-  /**
-   * A request the managed browser holds (browser.ts), as one card: bound to `key` (the request's fingerprint, see
-   * browser-request.ts), waiting until `waitUntil` in the turn running now. Never always-allowed (it names no kind of
-   * action) and never auto-allowed: every request the browser would send gets its own card.
-   */
-  browserRequest(botId: string, r: { title: string; details: string; input: unknown; key: string; waitUntil: string }): Approval {
-    const bot = this.#store.getBot(botId);
-    const from = this.#from(botId, false);
-    const fields: LogFields = { botId, trigger: from.trigger, turnId: from.turnId ?? undefined, tool: 'browser' };
-    this.#limit(botId, fields);
-    const ttl = Math.max(1000, new Date(r.waitUntil).getTime() - Date.now());
-    const id = this.#insert(botId, from, {
-      title: r.title,
-      details: r.details,
-      action: null,
-      auto: false,
-      ttl,
-      tool: { name: 'browser', input: JSON.stringify(r.input), key: `${BROWSER_KEY}${r.key}`, rule: null, waitUntil: r.waitUntil },
-    });
-    log.info('browser request held for approval', { ...fields, approvalId: id, waitUntil: r.waitUntil });
-    const approval = this.#emit(id);
-    this.#push(approval, bot);
-    return approval;
-  }
-
-  /**
-   * The owner's decision on a held browser request: only while the browser still holds it, in the turn that made it,
-   * and before its wait ends. Otherwise the card is withdrawn (409): nothing is ever sent later, or in another turn.
-   */
-  #decideBrowser(a: Approval, allow: boolean, note: string | null, deviceId: string | null): Approval {
-    // The browser holds a request only inside the turn that made it: its turn ending closes the browser, which withdraws the card.
-    const live = a.tool!.waitUntil > nowIso() && !!this.browser?.holds(a.id);
-    if (!live) {
-      if (this.#close(a.id, 'cancelled')) this.#store.addMessage(a.botId, 'event', `Withdrew an approval request: ${a.title}`, this.#meta(a, 'approval.cancelled'));
-      throw new HttpError(409, 'The browser step that held this request has ended, so it was withdrawn and nothing was sent.');
-    }
-    const decision = allow ? 'allowed' : 'denied';
-    this.#store.atomically(() => {
-      const changed = this.#db
-        .prepare("update approvals set status = ?, note = ?, decided_at = ?, decided_by = ?, in_turn = 1 where id = ? and status = 'pending'")
-        .run(decision, note, nowIso(), deviceId, a.id).changes;
-      if (!Number(changed)) throw new HttpError(409, 'This request was already decided');
-      this.#store.addMessage(a.botId, 'event', `${allow ? 'Allowed' : 'Denied'}: ${a.title}`, { kind: 'approval.decided', approvalId: a.id, approvalTitle: a.title, decision, ...(note ? { note } : {}) });
-    });
-    log.info('approval decided', { botId: a.botId, approvalId: a.id, decision, tool: 'browser', deviceId: deviceId ?? undefined });
-    const out = this.#emit(a.id);
-    this.browser?.decided(a.id);
-    return out;
-  }
-
-  /**
-   * The browser is about to send an allowed request: spent here, once (whoever comes second gets false), and only for
-   * the fingerprint the card was made for.
-   */
-  spendBrowser(id: string, key: string): boolean {
-    const changed = Number(
-      this.#db
-        .prepare("update approvals set used_at = ?, tool_input = json_set(tool_input, '$.delivery', 'sending') where id = ? and tool_key = ? and status = 'allowed' and in_turn = 1 and used_at is null")
-        .run(nowIso(), id, `${BROWSER_KEY}${key}`).changes,
-    );
-    if (changed) this.#emit(id);
-    return changed > 0;
-  }
-
-  /**
-   * What became of a spent browser request: `sent` (the site answered), `not-sent` (it failed before it left), or
-   * `unknown` (it was written and the connection broke before an answer: the site may have acted on it). Until this is
-   * recorded it stays `sending`, which reads as unknown too (the server stopped mid-send).
-   */
-  browserDelivered(id: string, delivery: 'sent' | 'not-sent' | 'unknown'): void {
-    const changed = Number(
-      this.#db.prepare("update approvals set tool_input = json_set(tool_input, '$.delivery', ?) where id = ? and used_at is not null and json_extract(tool_input, '$.delivery') = 'sending'").run(delivery, id).changes,
-    );
-    if (changed) this.#emit(id);
-  }
-
-  /**
-   * The browser no longer holds a request whose card still waits: its wait ran out (`time`), or the browser closed
-   * (the turn ended, Stop, the connector taken away). Withdrawn; false if it was decided first.
-   */
-  endBrowserWait(id: string, reason: 'time' | 'closed'): boolean {
-    const a = this.find(id);
-    if (!a || !this.#close(id, 'cancelled')) return false;
-    const why = reason === 'time' ? 'nobody decided while the browser step waited' : 'the browser closed';
-    this.#store.addMessage(a.botId, 'event', `Withdrew an approval request (${why}, so nothing was sent): ${a.title}`, this.#meta(a, 'approval.cancelled'));
-    log.info('browser request withdrawn', { botId: a.botId, approvalId: id, timedOut: reason === 'time' });
-    return true;
+  /** Network request cards cannot send a request. Product action approvals use the normal path above. */
+  #decideBrowser(a: Approval, _allow: boolean, _note: string | null, _deviceId: string | null): Approval {
+    if (this.#close(a.id, 'cancelled')) this.#store.addMessage(a.botId, 'event', `Withdrew an approval request: ${a.title}`, this.#meta(a, 'approval.cancelled'));
+    throw new HttpError(409, 'This browser request is no longer active. Nothing was sent.');
   }
 
   /**
@@ -741,8 +655,7 @@ export class Approvals {
   #close(id: string, status: 'expired' | 'cancelled' | 'allowed'): boolean {
     const changed = Number(this.#db.prepare("update approvals set status = ?, decided_at = ? where id = ? and status = 'pending'").run(status, nowIso(), id).changes);
     if (changed) {
-      const a = this.#emit(id);
-      if (a.tool?.browser) this.#store.afterCommit(() => this.browser?.decided(id));
+      this.#emit(id);
     }
     return changed > 0;
   }
@@ -829,7 +742,7 @@ Say briefly what you will do instead, if anything.`;
       ? `\nYou wrote this request during ${originText(a.from)}, whose payload came from outside. ${owner} read it on the approval card and allowed exactly this; this turn has your usual access and connectors.`
       : `\nYou asked during ${originText(a.from)}.`;
     if (a.tool?.browser) {
-      return `(From the Botons server: ${owner} decided on your browser's request ${a.id} after the browser step ended, so nothing was sent. Don't send it another way; read the page again if you still need it.)`;
+      return `(From the Botons server: ${a.id} is an inactive browser network request record, not an action approval. Pages load normally. Follow the normal approval rules for consequential external actions.)`;
     }
     if (a.tool) {
       const rule = a.tool.rule ? `${owner}'s Ask first rule ${escapeBlock(a.tool.rule)}` : 'Claude Code';
@@ -850,7 +763,6 @@ Only this was allowed, nothing more. When you are done, say what you did.`;
   }
 }
 
-/** A paused or held tool call, as the owner sees it; a browser request's delivery comes from its input (no column of its own). */
 /**
  * Whether a stored tool call is the call with this key, judged from its whole stored input rather than its stored key
  * (a key made by a rule that left an argument out names more than the one call its card shows).

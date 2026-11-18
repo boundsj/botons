@@ -39,6 +39,8 @@ export function tempDir(prefix = 'botons-test-'): string {
 
 // CLI homes created by in-process fixtures must stay off the developer's install.
 process.env.BOTONS_HOME = tempDir('botons-cli-test-');
+// Codex runs in the server account's home: a test gets its own, never the developer's ~/.codex.
+process.env.CODEX_HOME = tempDir('botons-codex-home-');
 
 export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 

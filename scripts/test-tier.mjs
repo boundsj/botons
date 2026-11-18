@@ -6,13 +6,13 @@ import { spawnSync } from 'node:child_process';
 // Short local child processes (`sh`, `node -e`), a loopback socket and timers of milliseconds are fine. Every other file runs only in `npm run test:full`,
 // which `npm run deploy` runs before the web build. New files default to the full tier.
 const unit = new Set([
-  'ask-rules', 'brand', 'cli-copy', 'browser-defaults', 'browser-dial', 'browser-screenshot', 'ci-scope', 'cli-homes',
+  'apns', 'ask-rules', 'brand', 'cli-copy', 'browser-defaults', 'browser-dial', 'browser-screenshot', 'ci-scope', 'cli-homes',
   'docker', 'doctor-egress', 'install-output', 'installer-brain-clis', 'installer-linger', 'installer-path', 'installer-revision',
   'instructions', 'legacy-names', 'licenses', 'perf-chat-budget', 'prompt', 'replay', 'replay-indexes', 'schedule', 'security-routes', 'security-units',
   'server-log-loader', 'theme', 'wake', 'boton', 'web-brains', 'web-browser-access', 'web-copy', 'web-deferred', 'web-files',
   'browser-handoff', 'browser-request', 'service-presets', 'web-live-view',
-  'web-live-settings', 'web-reactions', 'web-sidebar', 'web-skills', 'web-util',
-  'held-dir', 'private-storage', 'connector-launch', 'site', 'service-manager',
+  'web-live-settings', 'web-reactions', 'web-sidebar', 'web-skills', 'web-teams', 'web-util',
+  'held-dir', 'private-storage', 'connector-launch', 'site', 'service-manager', 'teams-rules', 'teams-store',
 ].map(name => `${name}.test.ts`));
 const tier = process.argv[2] || 'all';
 if (!['unit', 'integration', 'all'].includes(tier)) throw new Error(`Unknown test tier: ${tier}`);

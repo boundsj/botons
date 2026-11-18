@@ -8,6 +8,7 @@ import { join, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { test } from 'node:test';
 import { gunzipSync, gzipSync } from 'node:zlib';
+import { VERSION } from '../../shared/app-version.mjs';
 import type { AuditEvent, OperationsStatus, RestoreRehearsal } from '../../shared/types.ts';
 import { backup, planRestore, stamp } from '../src/backup.ts';
 import { memberNameOk, REHEARSAL_LIMITS, type RehearsalLimits, rehearse, TarChecker } from '../src/rehearsal.ts';
@@ -218,10 +219,10 @@ test('schemas a restore refuses are failed with the schema found, and nothing is
 test('an upgrade that fails in the copy is upgrade-failed', async () => {
   const home = previousSchemaHome();
   const { dir } = backup({ home });
-  // A table the upgrade from 34 renames one to, already there: the step throws.
-  assert.equal(PREVIOUS, 34, 'make this database fail the newest upgrade step');
+  // The upgrade creates the Teams tables: one already there makes it fail.
+  assert.equal(PREVIOUS, 38, 'make this database fail the newest upgrade step');
   const db = new DatabaseSync(join(dir, 'botons.db'));
-  db.exec('create table audit_events_34 (x)');
+  db.exec('create table teams (id text)');
   db.close();
   const r = await run(home, nameOf(dir));
   assert.equal(r.problem, 'upgrade-failed');
@@ -555,7 +556,7 @@ test('the owner rehearses the latest backup from the app: running, then passed, 
   assert.equal(last.files, 3);
   assert.equal(last.matchesManifest, true);
   assert.equal(last.ranBy.schema, SCHEMA_VERSION);
-  assert.equal(last.ranBy.version, '0.1.0');
+  assert.equal(last.ranBy.version, VERSION);
   assert.ok(Date.parse(last.finishedAt!) >= Date.parse(last.startedAt));
 
   const text = (await t.call('GET', '/api/operations')).text;

@@ -29,6 +29,12 @@ const FLOWS_PER_CONNECTION = 5;
 export const KEEPALIVE_MS = 7 * 86_400_000;
 const TRANSIENT_WAIT_MS = 5_000;
 export const CALLBACK_PATH = '/oauth/callback';
+/** Where a sign-in the native app started ends: fixed here, never chosen by a request. The attempt is the app's own random handle on it. */
+const APP_DONE_URI = 'botons-signin://done';
+const APP_RETURN_TO = new RegExp(`^${APP_DONE_URI}\\?attempt=([A-Za-z0-9_-]{43})$`);
+/** The attempt in a stored return address, when the sign-in was an app's; a web sign-in never stores one of these. */
+const appAttempt = (returnTo: string): string | null => APP_RETURN_TO.exec(returnTo)?.[1] ?? null;
+const appDoneUri = (attempt: string, result: 'connected' | 'failed') => `${APP_DONE_URI}?attempt=${attempt}&result=${result}`;
 
 const sha = (s: string) => createHash('sha256').update(s).digest('hex');
 
@@ -205,7 +211,7 @@ export class OAuthConnections {
   }
 
   /** A paired device starts a sign-in: discovery, a registered client (reused when it fits), a fresh state and PKCE verifier. */
-  async startConnect(id: string, deviceId: string | null, returnTo: unknown): Promise<OAuthConnectStart> {
+  async startConnect(id: string, deviceId: string | null, returnTo: unknown, completion: 'app' | null = null): Promise<OAuthConnectStart> {
     const r = this.#row(id);
     if (!r) throw new HttpError(404, `No OAuth connector with id ${id}`);
     if (!deviceId) throw new HttpError(403, 'Connect from a paired device');
@@ -238,6 +244,8 @@ export class OAuthConnections {
       log.info('registered Botons with an authorization server', { connectionId: id, issuer: hostOf(found.issuer) });
     }
     const state = randomBytes(32).toString('base64url');
+    // For the app: its own handle on this attempt, independent of the state (which goes to the authorization server).
+    const attempt = completion === 'app' ? randomBytes(32).toString('base64url') : null;
     const { verifier, challenge } = pkce();
     const now = new Date();
     const expiresAt = new Date(now.getTime() + FLOW_TTL_MS).toISOString();
@@ -249,10 +257,11 @@ export class OAuthConnections {
         .prepare(
           'insert into oauth_flows (state_hash, connection_id, device_id, generation, issuer, resource, metadata, scope, client_id, redirect_uri, code_verifier, return_to, created_at, expires_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
         )
-        .run(sha(state), id, deviceId, r.generation, found.issuer, found.resource, JSON.stringify(found.metadata), found.scope, clientId, redirectUri, verifier, this.#returnTo(returnTo), now.toISOString(), expiresAt);
+        .run(sha(state), id, deviceId, r.generation, found.issuer, found.resource, JSON.stringify(found.metadata), found.scope, clientId, redirectUri, verifier, attempt ? `${APP_DONE_URI}?attempt=${attempt}` : this.#returnTo(returnTo), now.toISOString(), expiresAt);
     });
     log.info('OAuth sign-in started', { connectionId: id, deviceId, issuer: hostOf(found.issuer) });
-    return { authorizeUrl: authorizeUrl(found.metadata, { clientId, redirectUri, scope: found.scope, state, challenge, resource: found.resource }), expiresAt };
+    const url = authorizeUrl(found.metadata, { clientId, redirectUri, scope: found.scope, state, challenge, resource: found.resource });
+    return attempt ? { authorizeUrl: url, expiresAt, attempt } : { authorizeUrl: url, expiresAt };
   }
 
   /**
@@ -625,14 +634,27 @@ const escapeHtml = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt
  * referrer sent on (its own URL holds the code), and a link back to the app.
  */
 export function callbackPage(r: { ok: boolean; message: string; returnTo: string; name: string | null }): { status: number; headers: Record<string, string>; body: string } {
-  const back = new URL(r.returnTo);
-  back.pathname = '/';
-  back.search = '';
-  if (r.name && NAME.test(r.name)) {
-    back.searchParams.set('connector', r.name);
-    back.searchParams.set('signin', r.ok ? 'connected' : 'failed');
+  const attempt = appAttempt(r.returnTo);
+  if (attempt && r.ok) {
+    return {
+      status: 302,
+      headers: { location: appDoneUri(attempt, 'connected'), 'cache-control': 'no-store', pragma: 'no-cache', 'referrer-policy': 'no-referrer', 'x-content-type-options': 'nosniff' },
+      body: '',
+    };
   }
-  const href = escapeHtml(back.toString());
+  let back: string;
+  if (attempt) back = appDoneUri(attempt, 'failed');
+  else {
+    const web = new URL(r.returnTo);
+    web.pathname = '/';
+    web.search = '';
+    if (r.name && NAME.test(r.name)) {
+      web.searchParams.set('connector', r.name);
+      web.searchParams.set('signin', r.ok ? 'connected' : 'failed');
+    }
+    back = web.toString();
+  }
+  const href = escapeHtml(back);
   const body = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="referrer" content="no-referrer"><title>Botons</title>${r.ok ? `<meta http-equiv="refresh" content="1; url=${href}">` : ''}<style>body{font:16px/1.5 system-ui,sans-serif;max-width:32rem;margin:15vh auto;padding:0 1.25rem;color:#1d1d1f}a{color:#0b63ce}</style></head><body><h1>${r.ok ? 'Connected' : 'Not connected'}</h1><p>${escapeHtml(r.message)}</p><p><a href="${href}">Back to Botons</a></p></body></html>`;
   return {
     status: r.ok ? 200 : 400,

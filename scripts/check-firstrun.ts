@@ -308,7 +308,10 @@ async function main() {
   if (!opt.url) {
     if (opt.migration) {
       await waitFor(`document.querySelector('.brains')?.innerText.includes('✓ Signed in')`);
-      await click(`[...document.querySelectorAll('.brains button')].find(b => b.textContent === 'Sign in separately')`);
+      check((await evalIn<string>('document.body.innerText')).includes('✓ Signed in'), "an existing account Codex sign-in is used as it is");
+      await click(`[...document.querySelectorAll('.brains button')].find(b => b.textContent === 'Change sign-in')`);
+      check((await evalIn<string>('document.body.innerText')).includes("server account's own Codex sign-in"), 'changing the Codex sign-in says it is shared with the server account');
+      await click(`[...document.querySelectorAll('.brains button')].find(b => b.textContent === 'Sign in to ChatGPT')`);
     } else await click(`[...document.querySelectorAll('.brains button')].find(b => b.textContent === 'Sign in to ChatGPT')`);
     await waitFor(`document.querySelector('.brains a')?.href === 'https://auth.openai.com/codex/device' && document.querySelector('.brains')?.innerText.includes('ABCD-EFGHJ')`);
     check(!(await evalIn<string>('document.body.innerText')).includes('private-output-must-stay-private'), 'guided sign-in never displays raw CLI output');

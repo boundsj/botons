@@ -6,6 +6,7 @@ import { DatabaseSync, type StatementSync } from 'node:sqlite';
 import type {
   AccessLevel,
   AttentionRun,
+  BotTeamRef,
   BackgroundActivity,
   BackgroundItem,
   Bot,
@@ -52,9 +53,10 @@ import type {
   UsageReport,
   UsageRow,
 } from '../../shared/types.ts';
+import { audienceOf, chooseAudience } from '../../shared/teams.ts';
 import type { TranscriptCard } from '../../shared/cards.ts';
 import type { BrowserHandoff } from '../../shared/handoff.ts';
-import { lookFor, lookFromTater, parseLook, randomLook } from '../../shared/look.ts';
+import { keepLeftOut, lookFor, lookFromTater, parseLook, randomLook } from '../../shared/look.ts';
 import { parseTater, taterFromCritter } from '../../shared/look-tater.ts';
 import { critterFromLook24, isLook24, parseCritter } from '../../shared/look-critter.ts';
 import { effortProblem, type ModelEfforts, providerEffort } from '../../shared/effort.ts';
@@ -78,10 +80,13 @@ import { type HookSecrets, isWebhookSource, parseFilter, WEBHOOK_SOURCES } from 
 export class HttpError extends Error {
   status: number;
   headers: Record<string, string> | undefined;
-  constructor(status: number, message: string, headers?: Record<string, string>) {
+  /** A machine-readable reason, sent beside the error (a team refusal's code, which the CLI prints once). */
+  code: string | undefined;
+  constructor(status: number, message: string, headers?: Record<string, string>, code?: string) {
     super(message);
     this.status = status;
     this.headers = headers;
+    this.code = code;
   }
 }
 
@@ -382,6 +387,10 @@ export class Store {
   #cfg: Config;
   #statusOf: (botId: string) => BotStatus;
   #tx: { events: (ServerEvent | (() => void))[]; dirs: string[] } | null = null;
+  /** A Boton's seats in teams that are not archived (Teams.botTeams); the app sets it. */
+  botTeams: (botId: string) => BotTeamRef[] = () => [];
+  /** In deleteBot's transaction, before the Boton goes (Teams.botDeleted); the app sets it. */
+  beforeBotDeleted: ((botId: string) => void) | null = null;
   /** What a provider's own model list says a model takes (ProviderRegistry.modelEfforts); the app sets it. */
   effortCaps: (provider: string, model: string) => ModelEfforts | null = () => null;
 
@@ -486,6 +495,7 @@ export class Store {
       paused: map.paused === '1',
       reactionFollowUps: map.reactionFollowUps === undefined ? [...DEFAULT_REACTION_FOLLOW_UPS] : parseJson<string[]>(map.reactionFollowUps, []),
       inboxCleanupDays: map.inboxCleanupDays === undefined ? INBOX_CLEANUP_DEFAULT_DAYS : map.inboxCleanupDays === 'off' ? null : Number(map.inboxCleanupDays) || INBOX_CLEANUP_DEFAULT_DAYS,
+      asksOutsideTeams: map.asksOutsideTeams !== '0',
     };
   }
 
@@ -541,6 +551,11 @@ export class Store {
     return n.server && n.topic ? n : null;
   }
 
+  /** "Show text in pushes", whether or not an ntfy server is set: it governs every channel. */
+  pushPreview(): boolean {
+    return this.#storedNtfy().preview;
+  }
+
   updateSettings(patch: UpdateSettingsInput): Settings {
     // Check everything before saving anything.
     if ((patch as { paused?: unknown }).paused !== undefined) throw new HttpError(400, 'Pause or resume every Boton with POST /api/pause or POST /api/resume');
@@ -550,6 +565,7 @@ export class Store {
     const primary = patch.primaryBotId !== undefined ? this.#primaryInput(patch.primaryBotId) : undefined;
     const followUps = patch.reactionFollowUps !== undefined ? followUpsInput(patch.reactionFollowUps) : undefined;
     const cleanup = patch.inboxCleanupDays;
+    const outside = patch.asksOutsideTeams !== undefined ? flag(patch.asksOutsideTeams, 'asksOutsideTeams') : undefined;
     if (cleanup !== undefined && cleanup !== null && !INBOX_CLEANUP_CHOICES.includes(cleanup as number)) {
       throw new HttpError(400, `inboxCleanupDays must be one of ${INBOX_CLEANUP_CHOICES.join(', ')}, or null for off`);
     }
@@ -560,6 +576,7 @@ export class Store {
     if (ntfy) this.#setSetting('ntfy', JSON.stringify(ntfy));
     if (followUps) this.#setSetting('reactionFollowUps', JSON.stringify(followUps));
     if (cleanup !== undefined) this.#setSetting('inboxCleanupDays', cleanup === null ? 'off' : String(cleanup));
+    if (outside !== undefined) this.#setSetting('asksOutsideTeams', outside ? '1' : '0');
     const settings = this.getSettings();
     this.#publish({ type: 'settings.updated', settings });
     return settings;
@@ -671,7 +688,7 @@ export class Store {
 
   publicBot(b: BotRecord): Bot {
     const { sessionId: _s, sessionKey: _k, contextSince: _c, ...bot } = b;
-    return bot;
+    return { ...bot, teams: this.botTeams(b.id) };
   }
 
   listBots(): Bot[] {
@@ -772,7 +789,8 @@ export class Store {
     if (input.name !== undefined) set('name', clean(input.name, 'name', 60, true));
     if (input.title !== undefined) set('title', clean(input.title, 'title', 80));
     if (input.instructions !== undefined) set('instructions', clean(input.instructions, 'instructions', 20_000));
-    if (input.look !== undefined) set('look', JSON.stringify(lookInput(input.look, id)));
+    // A part the client left out (one it doesn't know, like feet on an older app) keeps what the Boton has.
+    if (input.look !== undefined) set('look', JSON.stringify(keepLeftOut(input.look, lookInput(input.look, id), current.look)));
     if (input.provider !== undefined) set('provider', input.provider);
     if (input.model !== undefined) set('model', model);
     if (effort !== undefined) set('effort', effort);
@@ -939,8 +957,13 @@ export class Store {
   }
 
   deleteBot(id: string): void {
+    this.atomically(() => this.#deleteBot(id));
+  }
+
+  #deleteBot(id: string): void {
     this.getBot(id);
     this.#failActiveRuns('bot_id', id, 'Boton was deleted');
+    this.beforeBotDeleted?.(id);
     this.#run('delete from bots where id = ?', id);
     this.#run('delete from settings where key = ?', starterKey(id));
     this.#run('delete from settings where key = ?', `inboxPins:${id}`);
@@ -1243,6 +1266,7 @@ export class Store {
       paused: !!r.paused,
       primary: r.id === primary,
       self: r.id === botId,
+      teams: this.botTeams(r.id),
     }));
   }
 
@@ -1761,21 +1785,29 @@ export class Store {
   // A user message's `pending`: 1 waiting for a reply, 2 in flight (a 2 found at startup was cut off), 0 answered.
 
   /**
-   * The pending messages one chat turn answers: the oldest and those after it with the same audience, the one its reply
-   * goes to (the owner, or the colleague whose ask it is). Never two audiences, since one reply is sent to each asker.
+   * The pending messages one chat turn answers: every one waiting for the same audience, the one its reply goes to (the
+   * owner, the colleague whose ask it is, or a team: its check-ins and replies). Never two audiences, since one reply is
+   * sent to each asker. The owner's go first (shared/teams.ts chooseAudience), unless another audience's oldest has
+   * waited ownerFirstStarveMs; then the oldest goes first.
    */
   startChatTurn(botId: string): { messages: Message[]; interrupted: boolean; more: boolean } {
-    const all = this.#all("select * from messages where bot_id = ? and role = 'user' and pending in (1, 2) order by seq", botId);
-    const audience = (r: Row) => {
-      const meta = r.meta ? parseJson<MessageMeta | null>(r.meta, null) : null;
-      return meta?.kind === 'ask' ? `ask:${meta.fromBotId ?? ''}` : 'owner';
-    };
-    const first = all[0] ? audience(all[0]) : null;
-    const end = all.findIndex((r) => audience(r) !== first);
-    const rows = end === -1 ? all : all.slice(0, end);
+    const { all, chosen, audience } = this.#audiences(botId);
+    const rows = all.filter((r) => audience(r) === chosen);
     const interrupted = rows.some((r) => r.pending === 2);
     for (const r of rows) if (r.pending === 1) this.#run('update messages set pending = 2 where id = ?', r.id);
     return { messages: rows.map((r) => this.#toMessage(r)), interrupted, more: rows.length < all.length };
+  }
+
+  /** The audience the next chat turn would answer (null: nothing waits), without starting it. */
+  nextAudience(botId: string): string | null {
+    return this.#audiences(botId).chosen;
+  }
+
+  #audiences(botId: string): { all: Row[]; chosen: string | null; audience: (r: Row) => string } {
+    const all = this.#all("select * from messages where bot_id = ? and role = 'user' and pending in (1, 2) order by seq", botId);
+    const of = new Map(all.map((r) => [r.id, audienceOf(r.meta ? parseJson<MessageMeta | null>(r.meta, null) : null)]));
+    const audience = (r: Row) => of.get(r.id)!;
+    return { all, audience, chosen: chooseAudience(all.map((r) => ({ audience: audience(r), createdAt: String(r.created_at) })), Date.now()) };
   }
 
   /** One transaction, so a crash cannot leave the reply without its messages marked answered, or the reverse. */
@@ -1808,7 +1840,26 @@ export class Store {
   }
 
   dropPendingChat(botId: string): number {
-    return Number(this.#run("update messages set pending = 0 where bot_id = ? and role = 'user' and pending in (1, 2)", botId).changes);
+    return this.dropPendingChatMessages(botId).length;
+  }
+
+  /** The messages the drop answered with nothing, so whoever asked can be told (see Teams.replied). */
+  dropPendingChatMessages(botId: string): Message[] {
+    const rows = this.#all("select * from messages where bot_id = ? and role = 'user' and pending in (1, 2) order by seq", botId);
+    this.#run("update messages set pending = 0 where bot_id = ? and role = 'user' and pending in (1, 2)", botId);
+    return rows.map((r) => this.#toMessage(r));
+  }
+
+  /**
+   * A waiting message (pending 1, not started) taken back: answered with nothing and left out of the transcript.
+   * Only if it had not started, so a turn already running on it is never pulled from under it.
+   */
+  recallPending(id: string): boolean {
+    const changed = Number(
+      this.#run(`update messages set pending = 0, meta = json_set(coalesce(${MESSAGE_META}, '{}'), '$.quiet', json('true')) where id = ? and role = 'user' and pending = 1`, id).changes,
+    );
+    if (changed) this.#publish({ type: 'message.updated', message: this.findMessage(id)! });
+    return changed > 0;
   }
 
   /**
@@ -3082,6 +3133,6 @@ export function storedLook(v: unknown, seed: string): BotonLook | null {
 /** A look from a request, for the Boton `seed` names: as storedLook, or a 400. */
 export function lookInput(v: unknown, seed: string): BotonLook {
   const look = storedLook(v, seed);
-  if (!look) throw new HttpError(400, 'look must have shape, shell, glow, eyes, brows, mouth, top, ears, visor, panel, arms, backdrop and cheeks (true or false), each one of its listed values');
+  if (!look) throw new HttpError(400, 'look must have shape, shell, glow, eyes, brows, mouth, top, ears, visor, panel, arms, backdrop and cheeks (true or false), and may have feet, each one of its listed values');
   return look;
 }

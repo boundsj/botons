@@ -1,0 +1,152 @@
+[
+  {
+    "id": "team_atlas",
+    "name": "Atlas",
+    "goal": "Ship the importer: read the export, map it to the new schema, and write the user guide.",
+    "state": "active",
+    "pausedReason": null,
+    "lead": {
+      "botId": "bot_kevin",
+      "name": "Kevin"
+    },
+    "members": [
+      {
+        "botId": "bot_kevin",
+        "name": "Kevin",
+        "role": "lead",
+        "roleTitle": "Lead",
+        "responsibilities": "Plans the work and reviews results.",
+        "state": "idle",
+        "paused": false
+      },
+      {
+        "botId": "bot_stuart",
+        "name": "Stuart",
+        "role": "member",
+        "roleTitle": "Backend",
+        "responsibilities": "The importer and the schema.",
+        "state": "working",
+        "paused": false
+      },
+      {
+        "botId": "bot_bob",
+        "name": "Bob",
+        "role": "member",
+        "roleTitle": "Docs",
+        "responsibilities": "The user guide.",
+        "state": "idle",
+        "paused": true
+      }
+    ],
+    "counts": {
+      "open": 1,
+      "working": 1,
+      "blocked": 1,
+      "done": 1,
+      "cancelled": 0
+    },
+    "attention": 1,
+    "unreadThreads": 2,
+    "limits": {
+      "stallAfterMs": 1800000,
+      "startWithinMs": 900000,
+      "maxAttempts": 3,
+      "messagesPerDay": 300,
+      "checkinsPerDay": 40
+    },
+    "completion": null,
+    "reviewedAt": null,
+    "version": 4,
+    "createdAt": "2026-11-16T09:00:00.000Z",
+    "updatedAt": "2026-11-16T10:30:00.000Z"
+  },
+  {
+    "id": "team_borealis",
+    "name": "Borealis",
+    "goal": "Ship the importer: read the export, map it to the new schema, and write the user guide.",
+    "state": "done",
+    "pausedReason": null,
+    "lead": {
+      "botId": "bot_kevin",
+      "name": "Kevin"
+    },
+    "members": [
+      {
+        "botId": "bot_kevin",
+        "name": "Kevin",
+        "role": "lead",
+        "roleTitle": "Lead",
+        "responsibilities": "Plans the work and reviews results.",
+        "state": "idle",
+        "paused": false
+      },
+      {
+        "botId": "bot_stuart",
+        "name": "Stuart",
+        "role": "member",
+        "roleTitle": "Backend",
+        "responsibilities": "The importer and the schema.",
+        "state": "working",
+        "paused": false
+      },
+      {
+        "botId": "bot_bob",
+        "name": "Bob",
+        "role": "member",
+        "roleTitle": "Docs",
+        "responsibilities": "The user guide.",
+        "state": "idle",
+        "paused": true
+      }
+    ],
+    "counts": {
+      "open": 0,
+      "working": 0,
+      "blocked": 0,
+      "done": 2,
+      "cancelled": 1
+    },
+    "attention": 1,
+    "unreadThreads": 0,
+    "limits": {
+      "stallAfterMs": 1800000,
+      "startWithinMs": 900000,
+      "maxAttempts": 3,
+      "messagesPerDay": 300,
+      "checkinsPerDay": 40
+    },
+    "completion": {
+      "summary": "The importer is in the shared folder; the guide is in docs.",
+      "scope": "The CSV variant was left out: no export uses it yet.",
+      "by": {
+        "botId": "bot_kevin",
+        "name": "Kevin"
+      },
+      "at": "2026-11-16T14:00:00.000Z",
+      "done": [
+        {
+          "itemId": "item_import",
+          "title": "Write the importer",
+          "result": "importer.ts in the shared folder, with tests."
+        },
+        {
+          "itemId": "item_guide",
+          "title": "User guide",
+          "result": "docs/import.md"
+        }
+      ],
+      "cancelled": [
+        {
+          "itemId": "item_csv",
+          "title": "CSV variant",
+          "reason": "No export uses CSV yet.",
+          "by": "Kevin"
+        }
+      ]
+    },
+    "reviewedAt": null,
+    "version": 9,
+    "createdAt": "2026-11-16T09:00:00.000Z",
+    "updatedAt": "2026-11-16T10:30:00.000Z"
+  }
+]

@@ -173,6 +173,15 @@ async function site(tls = false): Promise<Site> {
            </form>`,
         );
       }
+      if (path === '/authenticated-spa') return html('Keys', `<h1>Keys</h1><p id="data">Loading</p><script>
+        Promise.all(['account','teams','permissions','keys'].map(name => fetch('/spa-data/'+name, {method:'POST',headers:{'content-type':'application/json'},body:'{"fixture":"private-body"}'}).then(r=>r.json())))
+          .then(rows=>{if(rows.every(r=>r.signedIn))document.querySelector('#data').innerHTML='<button>Fixture key details</button>';});
+      </script>`);
+      if (path.startsWith('/spa-data/')) {
+        const sid = /(?:^|;\s*)(?:sid|keep)=([^;]+)/.exec(req.headers.cookie ?? '')?.[1] ?? '';
+        res.writeHead(sessions.has(sid) ? 200 : 401, {'content-type':'application/json'});
+        return res.end(JSON.stringify({signedIn:sessions.has(sid)}));
+      }
       if (path === '/account') {
         const sid = /(?:^|;\s*)(?:sid|keep)=([^;]+)/.exec(req.headers.cookie ?? '')?.[1] ?? '';
         return html('Account', sessions.has(sid) ? `<p>Signed in as ${USER}</p>` : '<p>Not signed in</p>');
@@ -299,6 +308,8 @@ test('only paired devices reach a handover: a Boton token is refused everywhere,
       ['GET', `/api/bots/${kevin.id}/browser/handover/frame`],
       ['POST', `/api/bots/${kevin.id}/browser/handover/input`],
       ['POST', `/api/bots/${kevin.id}/browser/handover/finish`],
+      ['GET', `/api/bots/${kevin.id}/browser/handover/requests`],
+      ['POST', `/api/bots/${kevin.id}/browser/handover/requests/fixture`],
     ];
     for (const [m, p] of routes) {
       assert.equal((await s.call(m, p, { handover: H, action: 'reload' }, turn.token)).status, 403, `${m} ${p} with a Boton token`);
@@ -380,7 +391,7 @@ test('the owner signs in with fixed inputs and a live view; the credentials go o
     const journal = (await s.call('GET', `/api/bots/${kevin.id}/browser/journal`)).text;
     assert.ok(!journal.includes(PASSWORD) && !journal.includes(USER), journal);
     assert.match(journal, /took the browser over/);
-    assert.match(journal, /POST sent by the page, after/);
+    assert.ok(!journal.includes('waiting for owner review'));
     // Chromium didn't even try to check the password with its leak service (the proxy would refuse it anyway).
     assert.ok(!/leakcheck/i.test(journal), journal);
     const audit = s.app.store.db.prepare("select details from audit_events where action like 'browser.%'").all();
@@ -417,61 +428,6 @@ test('while the owner has it the Boton is refused, whatever it asks; after, it r
     assert.match(read.content!.text, new RegExp(`Signed in as ${USER}`));
     assert.ok(!JSON.stringify(read).includes(PASSWORD));
     await turn.end();
-  } finally {
-    await close();
-  }
-});
-
-test("taking the browser over while the Boton's step waits on a card withdraws it: the held request never goes", async () => {
-  const { f, s, kevin, close } = await setup();
-  try {
-    const turn = browserTurn(s, kevin.id);
-    await turn.act({ action: 'open', url: `${f.url}/note` });
-    const controls = (await turn.act({ action: 'read' })).content!.controls;
-    const button = controls.find((c) => /Save note/.test(c.label))!;
-    const clicking = turn.act({ action: 'click', ref: button.ref });
-    const card = await until(() => s.app.approvals.list({ botId: kevin.id, status: 'pending' })[0], 15_000);
-    const o = await takeOver(s, kevin.id);
-    const result = await clicking;
-    assert.equal(result.outcome, 'refused');
-    assert.equal(result.approval?.delivery, 'not-sent');
-    assert.notEqual(s.app.approvals.get(card.id).status, 'allowed');
-    // Allowing it now does nothing: the step that held it is gone with its browser.
-    await s.call('POST', `/api/approvals/${card.id}/decide`, { decision: 'allow' });
-    await o.finish();
-    await new Promise((r) => setTimeout(r, 300));
-    assert.deepEqual(f.hits.filter((x) => x.method === 'POST'), []);
-    await turn.end();
-  } finally {
-    await close();
-  }
-});
-
-test("a page's own background writes are refused but right after the owner's input; nothing goes once it ends", async () => {
-  const { f, s, kevin, close } = await setup();
-  try {
-    s.app.browser.testHandover = { intentMs: 1500 };
-    const o = await takeOver(s, kevin.id);
-    await o.act({ action: 'open', url: `${f.url}/background` });
-    const polls = () => f.hits.filter((x) => x.url === '/poll' && x.method === 'POST').length;
-    // Opening an address is no consent to send: the page polls, and nothing goes.
-    await new Promise((r) => setTimeout(r, 1200));
-    assert.equal(polls(), 0);
-    // Right after a click, the page's writes go (the owner is acting on it); a moment later, no more.
-    await o.act({ action: 'click', x: 600, y: 400 });
-    await until(() => polls() > 0, 5000);
-    await new Promise((r) => setTimeout(r, 2000));
-    const settled = polls();
-    await new Promise((r) => setTimeout(r, 1200));
-    assert.equal(polls(), settled);
-    // A click, then the end: nothing more after it ends.
-    await o.act({ action: 'click', x: 600, y: 400 });
-    await o.finish();
-    const after = polls();
-    await new Promise((r) => setTimeout(r, 1200));
-    assert.equal(polls(), after);
-    const journal = (await s.call('GET', `/api/bots/${kevin.id}/browser/journal`)).text;
-    assert.match(journal, /sent it on its own, not within/);
   } finally {
     await close();
   }
@@ -569,56 +525,6 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 for (const tls of [false, true]) {
   const scheme = tls ? 'HTTPS' : 'HTTP';
-  test(`${scheme}: a page's writes go only within the owner's moment, whatever sends them (an unloading page, a page leaving by itself, a closed tab, a worker), and each that goes is journaled`, async () => {
-    const { f, s, kevin, close } = await setup({ tls });
-    try {
-      s.app.browser.testHandover = { intentMs: 1500 };
-      const o = await takeOver(s, kevin.id);
-      const writes = () => f.hits.filter((x) => x.url === '/write' && x.method === 'POST').length;
-      // Opened, gone back, reloaded, with no click, key or typing: what the page sends as it unloads goes nowhere.
-      await o.act({ action: 'open', url: `${f.url}/unload` });
-      await o.act({ action: 'open', url: `${f.url}/account` });
-      await o.act({ action: 'back' });
-      await o.act({ action: 'reload' });
-      await o.act({ action: 'open', url: `${f.url}/account` });
-      // A click, then the moment passes: opening another page still sends nothing of the old one's.
-      await o.act({ action: 'open', url: `${f.url}/unload` });
-      await o.act({ action: 'click', x: 600, y: 400 });
-      await sleep(1700);
-      await o.act({ action: 'open', url: `${f.url}/account` });
-      // A click and at once another address: opening ends the moment there and then.
-      await o.act({ action: 'open', url: `${f.url}/unload` });
-      await o.act({ action: 'click', x: 600, y: 400 });
-      await o.act({ action: 'open', url: `${f.url}/account` });
-      // A page that leaves by itself, one whose new tab is closed, one whose worker writes.
-      for (const path of ['/self', '/popup', '/worker']) {
-        await o.act({ action: 'open', url: `${f.url}${path}` });
-        await sleep(1500);
-      }
-      await o.act({ action: 'open', url: `${f.url}/account` });
-      await sleep(800);
-      assert.equal(writes(), 0, `${writes()} writes reached the site`);
-      const journal = s.app.browser.journal(kevin.id, 2000);
-      // Refused at the proxy itself, where Playwright's routing never saw it (the unloading page's beacon).
-      assert.ok(journal.some((e) => e.action === 'blocked' && e.url.endsWith('/write') && /a POST request to .*only reads pages/.test(e.detail)), JSON.stringify(journal.filter((e) => e.url.endsWith('/write'))));
-
-      // Within the owner's moment the page's writes go, and every one that left is in the journal.
-      await o.act({ action: 'open', url: `${f.url}/background` });
-      await o.act({ action: 'click', x: 600, y: 400 });
-      const polls = () => f.hits.filter((x) => x.url === '/poll' && x.method === 'POST').length;
-      await until(() => polls() > 0, 5000);
-      await o.finish();
-      const sent = s.app.browser.journal(kevin.id, 2000).filter((e) => e.action === 'handover' && e.url.endsWith('/poll') && /^POST sent by the page/.test(e.detail)).length;
-      assert.ok(sent >= polls() && polls() > 0, `${polls()} writes reached the site, ${sent} journaled`);
-      const after = polls();
-      await sleep(800);
-      assert.equal(polls(), after);
-      assert.equal(writes(), 0);
-    } finally {
-      await close();
-    }
-  });
-
   test(`${scheme}: what the owner types (ordinary text, a one-time code, a password) is in no file once the handover ends, however it ends, nor in a backup or after a restart; the cookies stay`, async () => {
     const { f, s, kevin, close } = await setup({ tls });
     let s2: TestServer | null = null;
@@ -747,5 +653,40 @@ test('a handover profile left by a server that was killed is deleted when the se
     assert.ok(existsSync(join(s.home, 'browser', kevin.id)));
   } finally {
     await s2.stop();
+  }
+});
+
+
+test('authenticated POST-loading SPA continues after private handback without request approvals', async () => {
+  const { f, s, kevin, close } = await setup({ tls: true });
+  try {
+    const turn = browserTurn(s, kevin.id);
+    const o = await takeOver(s, kevin.id);
+    const requests = `/api/bots/${kevin.id}/browser/handover/requests`;
+    assert.deepEqual((await s.call('GET', requests)).data, []);
+    assert.equal((await s.call('POST', `${requests}/fixture`, { decision: 'allow' })).status, 410);
+    await signIn(o, f);
+    await o.act({ action: 'open', url: `${f.url}/authenticated-spa` });
+    const owner = await s.app.browser.testOwnerJar(kevin.id);
+    await until(async () => (await owner!.pages()[0]!.textContent('#data'))?.includes('Fixture key details'), 2000);
+    assert.equal(f.hits.filter(h => h.url.startsWith('/spa-data/')).length, 4);
+    assert.equal((await turn.act({ action: 'read' })).outcome, 'refused');
+    await o.finish();
+    assert.ok(!existsSync(join(s.cfg.home, 'browser', kevin.id, 'handover')));
+    const blank = await turn.act({ action: 'read' });
+    assert.equal(blank.page?.url, 'about:…');
+    await turn.act({ action: 'open', url: `${f.url}/authenticated-spa` });
+    const read = await until(async () => {
+      const r = await turn.act({ action: 'read' });
+      return r.content?.text.includes('Fixture key details') ? r : null;
+    }, 2000);
+    assert.ok(read.content?.controls.some(c => c.label === 'Fixture key details'));
+    assert.equal(f.hits.filter(h => h.url.startsWith('/spa-data/')).length, 8);
+    assert.equal(s.app.store.db.prepare("select count(*) as n from approvals where tool_key like 'browser-op:%'").get()!.n, 0);
+    assert.ok(!JSON.stringify(read).includes(PASSWORD));
+    assert.ok(!JSON.stringify(s.app.browser.journal(kevin.id)).includes('private-body'));
+    await turn.end();
+  } finally {
+    await close();
   }
 });
