@@ -7,6 +7,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends sudo systemd cu
 RUN echo 'node ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/botons-smoke
 WORKDIR /work
 COPY --chown=node:node . .
-COPY --from=artifact --chown=node:node /tmp/getbotons-0.0.0.tgz /tmp/getbotons-0.0.0.tgz
+COPY --from=artifact --chown=node:node /tmp/getbotons-*.tgz /tmp/getbotons.tgz
 USER node
 CMD ["sh", "installer/smoke.sh"]

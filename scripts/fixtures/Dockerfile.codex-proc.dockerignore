@@ -1,0 +1,8 @@
+# Only the offline smoke probe and the production modules it exercises.
+**
+!package.json
+!scripts/check-codex-proc.ts
+!scripts/fixtures/codex-proc-container.sh
+!server/src/providers/codex-workspace.ts
+!server/src/sandbox.ts
+!server/src/log.ts

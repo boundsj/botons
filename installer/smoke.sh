@@ -3,8 +3,8 @@ set -eu
 # Run inside the disposable Debian container as an ordinary user.
 export HOME=/tmp/botons-tar-home npm_config_cache=/tmp/botons-tar-cache
 mkdir -p "$HOME"
-npx -y file:/tmp/getbotons-0.0.0.tgz install --yes --no-service --host 0.0.0.0 --home /tmp/botons-tar-data
-npx -y file:/tmp/getbotons-0.0.0.tgz repair --yes --no-service --no-sudo
+npx -y file:/tmp/getbotons.tgz install --yes --no-service --host 0.0.0.0 --home /tmp/botons-tar-data
+npx -y file:/tmp/getbotons.tgz repair --yes --no-service --no-sudo
 # Prove the tarball install serves before testing Git in another clean home/cache.
 export BOTONS_HOME=/tmp/botons-tar-data BOTONS_PORT=18788 BOTONS_HOST=0.0.0.0 BOTONS_NO_TAILSCALE=1 BOTONS_ENABLE_MOCK=1 BOTONS_CLAUDE_BIN=/nonexistent/claude BOTONS_CODEX_BIN=/nonexistent/codex
 "$HOME/.local/bin/botons" serve >/tmp/botons-tar-server.log 2>&1 &
@@ -36,7 +36,7 @@ git diff --cached --quiet || git commit -m 'Test installer package'
 node /work/installer/probe-git-spec.mjs /tmp/botons-git
 npx -y git+file:///tmp/botons-git install --dry-run
 npx -y git+file:///tmp/botons-git install --yes --no-service --host 0.0.0.0 --home /tmp/botons-data
-npx -y file:/tmp/getbotons-0.0.0.tgz repair --yes --no-service --no-sudo --home /tmp/botons-data
+npx -y file:/tmp/getbotons.tgz repair --yes --no-service --no-sudo --home /tmp/botons-data
 export BOTONS_HOME=/tmp/botons-data BOTONS_PORT=18789 BOTONS_HOST=0.0.0.0 BOTONS_NO_TAILSCALE=1 BOTONS_ENABLE_MOCK=1 BOTONS_CLAUDE_BIN=/nonexistent/claude BOTONS_CODEX_BIN=/nonexistent/codex
 "$HOME/.local/bin/botons" serve >/tmp/botons-server.log 2>&1 &
 server=$!
