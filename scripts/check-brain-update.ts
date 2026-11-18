@@ -22,6 +22,7 @@ const chrome=process.env.CHROME_BIN || ['/opt/google/chrome/chrome','/usr/bin/go
 const browser=await chromium.launch({executablePath:chrome,args:['--no-sandbox']});
 try{
   const page=await browser.newPage({viewport:{width:1280,height:900}});
+  page.setDefaultTimeout(30_000);
   await page.addInitScript(token=>localStorage.setItem('botons.deviceToken',token),s.token);await page.goto(s.base);
   await page.getByRole('button',{name:'Continue',exact:true}).click();await page.getByRole('button',{name:'Continue',exact:true}).click();
   await page.getByRole('button',{name:'Use my Claude or ChatGPT subscription'}).click();await page.getByText('Needs update',{exact:true}).waitFor();
@@ -30,17 +31,19 @@ try{
   assert.equal(await page.getByRole('button',{name:'Create',exact:true}).isDisabled(),true);
   await page.getByRole('button',{name:'go back to Brains',exact:true}).click();await page.getByRole('button',{name:'Use my Claude or ChatGPT subscription'}).click();
   await page.getByRole('button',{name:'Update now',exact:true}).click();await page.getByRole('button',{name:'Install and use this copy',exact:true}).click();
-  await page.getByText('✓ CLI installed and selected. Continue with sign-in if needed.',{exact:true}).waitFor();
+  await page.getByRole('status').filter({hasText:/^✓ Botons now uses its own Codex 0\.167\.0\./}).waitFor();
   assert.equal(await page.getByRole('button',{name:'Update now',exact:true}).count(),0);
   await page.getByRole('button',{name:'Sign in to ChatGPT',exact:true}).click();await page.getByText('ABCD-EFGHJ',{exact:true}).waitFor();writeFileSync(approve,'owner approved fake login');
-  await page.getByText('Ready ✓',{exact:true}).waitFor();
-  assert.equal((await s.call('GET','/api/providers')).data.find((p: any) => p.id === 'codex-cli').workspaceProblem, null, 'the updated fixture supports the Workspace preflight');
+  await page.getByRole('status').filter({hasText:/^✓ Signed in · Change sign-in$/}).waitFor();
+  const updated=(await s.call('GET','/api/providers')).data.find((p: any) => p.id === 'codex-cli');
+  assert.equal(updated.readiness.state,'ready');assert.equal(updated.copy.managed,true);
+  assert.equal(updated.workspaceProblem, null, 'the updated fixture supports the Workspace preflight');
   assert.equal(await page.getByText('Needs update',{exact:true}).count(),0);
   await page.getByRole('button',{name:'Continue',exact:true}).click();await page.getByRole('heading',{name:'Your first Boton',exact:true}).waitFor();
   const select=page.getByRole('combobox');await page.getByRole('button',{name:'Check again',exact:true}).waitFor();
   await page.waitForFunction(()=>document.querySelector<HTMLSelectElement>('select')?.value==='codex-cli');
   assert.equal(await select.inputValue(),'codex-cli');await page.getByLabel('Name',{exact:true}).fill('Kevin');
-  await page.getByRole('button',{name:'Create',exact:true}).click();await page.getByRole('heading',{name:'Fresh out of the fryer',exact:true}).waitFor();
+  await page.getByRole('button',{name:'Create',exact:true}).click();await page.getByRole('heading',{name:'Lights on',exact:true}).waitFor();
   const bots=(await s.call('GET','/api/bots')).data;assert.equal(bots[0].provider,'codex-cli');
   const out=process.env.BOTONS_PROOF_DIR;if(out){mkdirSync(out,{recursive:true});await page.screenshot({path:join(out,'first-boton-created.png'),fullPage:true});}
   // Keep the chosen API brain stale until the first-boton entry refresh completes.
@@ -49,7 +52,7 @@ try{
   const apiServer=await startServer({appOptions:{apiKeys:{testEndpoints:{anthropic:`http://127.0.0.1:${port}`}}},configure:cfg=>{cfg.webDist=resolve('web/dist');cfg.hostname='myhost';}});
   try {
     apiServer.app.store.updateSettings({ownerName:'Sam'});
-    const apiPage=await browser.newPage();await apiPage.addInitScript(token=>localStorage.setItem('botons.deviceToken',token),apiServer.token);
+    const apiPage=await browser.newPage();apiPage.setDefaultTimeout(30_000);await apiPage.addInitScript(token=>localStorage.setItem('botons.deviceToken',token),apiServer.token);
     let entering=false;let releaseEntry!:()=>void;const entry=new Promise<void>(r=>{releaseEntry=r;});
     await apiPage.route('**/api/providers*',async route=>{
       const response=await route.fetch();const data=await response.json();
@@ -65,7 +68,7 @@ try{
     entering=true;await apiPage.getByRole('button',{name:'Continue',exact:true}).click();await apiPage.getByRole('button',{name:'Checking brains…',exact:true}).waitFor();
     releaseEntry();await apiPage.getByRole('button',{name:'Check again',exact:true}).waitFor();
     assert.equal(await apiPage.getByRole('combobox').inputValue(),'anthropic-api');
-    await apiPage.getByLabel('Name',{exact:true}).fill('Stuart');await apiPage.getByRole('button',{name:'Create',exact:true}).click();await apiPage.getByRole('heading',{name:'Fresh out of the fryer',exact:true}).waitFor();
+    await apiPage.getByLabel('Name',{exact:true}).fill('Stuart');await apiPage.getByRole('button',{name:'Create',exact:true}).click();await apiPage.getByRole('heading',{name:'Lights on',exact:true}).waitFor();
     const made=(await apiServer.call('GET','/api/bots')).data[0];assert.equal(made.provider,'anthropic-api');assert.equal(made.model,'claude-fake-kevin');
     assert.equal((await apiServer.call('GET',`/api/bots/${made.id}/spending`)).data.dailyCapUsd,2);
     console.log('PASS: immediately continuing after Test key preserves the chosen API provider, model and daily cap through a delayed entry refresh');

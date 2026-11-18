@@ -9,6 +9,7 @@ const out = process.env.BOTONS_PROOF_DIR || '/tmp/botons-workspace-proof'; mkdir
 try {
  for (const failing of [true, false]) {
   const s = await startServer({configure: c => { c.webDist = resolve('web/dist'); c.hostname = 'myhost'; }});
+  try {
   s.app.store.updateSettings({ownerName:'Sam'});
   const page = await browser.newPage({viewport:{width:1280,height:900}});
   await page.addInitScript(token=>localStorage.setItem('botons.deviceToken',token),s.token);
@@ -26,8 +27,8 @@ try {
    await page.getByRole('button',{name:'Continue',exact:true}).click();
    await page.getByRole('button',{name:'Continue',exact:true}).click();
    await page.getByRole('button',{name:/Use my Claude or ChatGPT subscription/}).click();
-   await page.getByText('Ready ✓',{exact:true}).waitFor();
-   await page.getByText('✓ Signed in',{exact:true}).waitFor();
+   await page.getByRole('status').filter({hasText:/^✓ Signed in/}).waitFor();
+   await page.getByRole('button',{name:'Change sign-in',exact:true}).waitFor();
    assert.equal(await page.getByText(/Not available on this server/).count(),0);
    await page.getByText('Awake: a brain is ready, so your Botons can think.',{exact:true}).waitFor();
    await page.screenshot({path:join(out,`brains-${failing?'unavailable':'available'}-desktop.png`),fullPage:true});
@@ -43,7 +44,7 @@ try {
    await page.screenshot({path:join(out,`setup-${failing?'unavailable':'available'}-desktop.png`),fullPage:true});
    await page.setViewportSize({width:390,height:844}); await page.screenshot({path:join(out,`setup-${failing?'unavailable':'available'}-phone.png`),fullPage:true});
    await page.getByRole('button',{name:'Create',exact:true}).click();
-   await page.getByRole('heading',{name:'Fresh out of the fryer',exact:true}).waitFor();
+   await page.getByRole('heading',{name:'Lights on',exact:true}).waitFor();
    await page.getByRole('button',{name:/Open.*Kevin|Meet.*Kevin|Start chatting|Let.s go/}).click();
   }
   await page.setViewportSize({width:1280,height:900});
@@ -77,7 +78,7 @@ try {
    assert.ok(audit.some((e: any)=>e.action==='boton.access_changed' && e.details?.from==='workspace' && e.details?.to==='host'));
    await chat.close();
   }
-  await s.stop();
+  } finally { await s.stop(); }
  }
  console.log('Workspace access browser checks passed');
 } finally { await browser.close(); }
